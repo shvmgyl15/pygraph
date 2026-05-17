@@ -7,10 +7,13 @@ from typing import Any
 
 from pygraph.graph.types import (
     SCHEMA_VERSION,
+    BlueprintDef,
+    BlueprintRegistration,
     CallEdge,
     Dependency,
     EnvRead,
     ErrorEdge,
+    ExtensionUsage,
     FileNode,
     Graph,
     HTTPRoute,
@@ -20,13 +23,15 @@ from pygraph.graph.types import (
     PackageNode,
     StructField,
     SymbolNode,
+    TemplateRef,
     TestEdge,
 )
 
 ARRAY_FIELDS: set[str] = {
     "packages", "files", "symbols", "calls", "imports", "routes",
     "env_reads", "dependencies", "test_edges", "implements",
-    "mutations", "errors",
+    "mutations", "errors", "blueprints", "blueprint_registrations",
+    "template_refs", "extensions",
 }
 
 REQUIRED_FIELDS: set[str] = ARRAY_FIELDS | {"schema_version", "generated_at", "project_root"}
@@ -53,6 +58,10 @@ def graph_to_dict(graph: Graph) -> dict[str, Any]:
         "implements": [_filter_none(asdict(i)) for i in graph.implements],
         "mutations": [_filter_none(asdict(m)) for m in graph.mutations],
         "errors": [_filter_none(asdict(e)) for e in graph.errors],
+        "blueprints": [_filter_none(asdict(b)) for b in graph.blueprints],
+        "blueprint_registrations": [_filter_none(asdict(r)) for r in graph.blueprint_registrations],
+        "template_refs": [_filter_none(asdict(t)) for t in graph.template_refs],
+        "extensions": [_filter_none(asdict(e)) for e in graph.extensions],
     })
 
 
@@ -87,6 +96,12 @@ def dict_to_graph(data: dict[str, Any]) -> Graph:
         implements=[ImplementsEdge(**im) for im in data["implements"]],
         mutations=[MutationEdge(**mu) for mu in data["mutations"]],
         errors=[ErrorEdge(**er) for er in data["errors"]],
+        blueprints=[BlueprintDef(**b) for b in data.get("blueprints", [])],
+        blueprint_registrations=[
+            BlueprintRegistration(**r) for r in data.get("blueprint_registrations", [])
+        ],
+        template_refs=[TemplateRef(**t) for t in data.get("template_refs", [])],
+        extensions=[ExtensionUsage(**e) for e in data.get("extensions", [])],
     )
 
 

@@ -307,6 +307,109 @@ class GraphQuery:
                 })
         return matching
 
+    def get_complexity(
+        self, name: str | None = None
+    ) -> list[dict[str, Any]]:
+        if name:
+            sym = self.get_symbol(name)
+            if not sym:
+                return []
+            return [{
+                "name": sym.name,
+                "kind": sym.kind,
+                "file": sym.file,
+                "line": sym.line,
+                "complexity": sym.complexity or 1,
+            }]
+
+        ranked: list[dict[str, Any]] = []
+        for sym in self.graph.symbols:
+            if sym.kind in ("function", "method") and sym.complexity is not None:
+                ranked.append({
+                    "name": sym.name,
+                    "kind": sym.kind,
+                    "file": sym.file,
+                    "line": sym.line,
+                    "complexity": sym.complexity,
+                })
+        ranked.sort(key=lambda x: x["complexity"], reverse=True)
+        return ranked[:20]
+
+    def get_coupling(
+        self, name: str | None = None
+    ) -> list[dict[str, Any]]:
+        ca: dict[str, int] = {}
+        ce: dict[str, int] = {}
+
+        for sym in self.graph.symbols:
+            n = sym.name
+            ca.setdefault(n, 0)
+            ce.setdefault(n, 0)
+
+        for call in self.graph.calls:
+            caller_name = call.caller_name
+            ca_parts = call.callee_raw.split(".")
+            callee_name = ca_parts[-1]
+            ce[caller_name] = ce.get(caller_name, 0) + 1
+            ca[callee_name] = ca.get(callee_name, 0) + 1
+
+        if name:
+            if name not in ca and name not in ce:
+                return []
+            a = ca.get(name, 0)
+            e = ce.get(name, 0)
+            instability = e / (a + e) if (a + e) > 0 else 0.0
+            return [{"name": name, "ca": a, "ce": e, "instability": round(instability, 3)}]
+
+        all_coupling: list[dict[str, Any]] = []
+        for n in ca:
+            a = ca[n]
+            e = ce.get(n, 0)
+            instability = e / (a + e) if (a + e) > 0 else 0.0
+            all_coupling.append({"name": n, "ca": a, "ce": e, "instability": round(instability, 3)})
+        all_coupling.sort(key=lambda x: x["ce"] + x["ca"], reverse=True)
+        return all_coupling[:20]
+
+    def get_hotspots(self, top_n: int = 10) -> list[dict[str, Any]]:
+        ca: dict[str, int] = {}
+        ce: dict[str, int] = {}
+
+        for sym in self.graph.symbols:
+            n = sym.name
+            ca.setdefault(n, 0)
+            ce.setdefault(n, 0)
+
+        for call in self.graph.calls:
+            caller_name = call.caller_name
+            ca_parts = call.callee_raw.split(".")
+            callee_name = ca_parts[-1]
+            ce[caller_name] = ce.get(caller_name, 0) + 1
+            ca[callee_name] = ca.get(callee_name, 0) + 1
+
+        scores: list[dict[str, Any]] = []
+        for sym in self.graph.symbols:
+            if sym.kind not in ("function", "method") or sym.complexity is None:
+                continue
+            coupling = ca.get(sym.name, 0) + ce.get(sym.name, 0)
+            score = sym.complexity * max(coupling, 1)
+            scores.append({
+                "name": sym.name,
+                "kind": sym.kind,
+                "file": sym.file,
+                "line": sym.line,
+                "complexity": sym.complexity,
+                "coupling": coupling,
+                "score": score,
+            })
+        scores.sort(key=lambda x: x["score"], reverse=True)
+        return scores[:top_n]
+
+    def get_deps(self) -> list[dict[str, Any]]:
+        return [
+            {"module": d.module, "version": d.version}
+            for d in self.graph.dependencies
+        ]
+
     def get_errorflow(
         self, error_message: str
     ) -> list[dict[str, Any]]:

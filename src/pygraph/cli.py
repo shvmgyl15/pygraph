@@ -167,3 +167,46 @@ def trace(
     query = _load_query(root)
     from pygraph.commands.trace import run
     run(query, message)
+
+
+@app.command()
+def complexity(
+    name: str | None = typer.Argument(None, help="Symbol name (omit for ranked list)"),
+    root: str = typer.Option(".", "--root", help="Project root directory"),
+) -> None:
+    """Show McCabe cyclomatic complexity"""
+    query = _load_query(root)
+    from pygraph.commands.complexity import run
+    run(query, name)
+
+
+@app.command()
+def coupling(
+    name: str | None = typer.Argument(None, help="Symbol name (omit for ranked list)"),
+    root: str = typer.Option(".", "--root", help="Project root directory"),
+) -> None:
+    """Show afferent/efferent coupling metrics"""
+    query = _load_query(root)
+    from pygraph.commands.coupling import run
+    run(query, name)
+
+
+@app.command()
+def hotspot(
+    top: int = typer.Option(10, "--top", "-n", help="Number of hotspots to show"),
+    root: str = typer.Option(".", "--root", help="Project root directory"),
+) -> None:
+    """Show high-risk symbols (complexity × coupling)"""
+    query = _load_query(root)
+    from pygraph.commands.hotspot import run
+    run(query, top)
+
+
+@app.command()
+def deps(
+    root: str = typer.Option(".", "--root", help="Project root directory"),
+) -> None:
+    """List external dependencies"""
+    query = _load_query(root)
+    from pygraph.commands.deps import run
+    run(query)

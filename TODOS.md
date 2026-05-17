@@ -36,18 +36,18 @@
 - [x] Write query command tests (60 tests)
 
 ## Phase 5: Flask-Specific Extractors
-- [ ] Route detection (`@app.route`, method, URL params)
-- [ ] Blueprint detection and registration
-- [ ] Template rendering detection (`render_template`)
-- [ ] Error handler detection (`@app.errorhandler`)
-- [ ] CLI command detection (`@app.cli.command`)
-- [ ] Flask extension detection and usage
-- [ ] Write extractor tests
+- [x] Route detection (`@app.route`, method, URL params)
+- [x] Blueprint detection and registration
+- [x] Template rendering detection (`render_template`)
+- [x] Error handler detection (`@app.errorhandler`)
+- [x] CLI command detection (`@app.cli.command`)
+- [x] Flask extension detection and usage
+- [x] Write extractor tests
 
 ## Phase 6: Analysis Commands
-- [ ] complexity (McCabe / cyclomatic)
-- [ ] hotspot / coupling / deps
-- [ ] Write analysis tests
+- [x] complexity (McCabe / cyclomatic)
+- [x] hotspot / coupling / deps
+- [x] Write analysis tests
 
 ## Phase 7: Graph Traversal
 - [ ] impact (BFS downstream blast radius)

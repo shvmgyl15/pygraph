@@ -41,16 +41,19 @@ def sample_graph() -> Graph:
             file="app.py", line=1, end_line=12,
             is_exported=True, arity=1,
             signature="def run(port: int): ...",
+            complexity=3,
         ),
         make_symbol_node(
             id="app.py::_helper", name="_helper", kind="function",
             file="app.py", line=14, end_line=18,
             is_exported=False,
+            complexity=2,
         ),
         make_symbol_node(
             id="app.py::setup", name="setup", kind="function",
             file="app.py", line=20, end_line=25,
             is_exported=True,
+            complexity=1,
         ),
         make_symbol_node(
             id="app.py::Service", name="Service", kind="class",
@@ -539,3 +542,92 @@ class TestCommandOutput:
         run(query, "nonexistent.py")
         captured = capsys.readouterr()
         assert "not found" in captured.out
+
+
+class TestGetComplexity:
+    def test_complexity_for_symbol(self, query: GraphQuery) -> None:
+        results = query.get_complexity("run")
+        assert len(results) == 1
+        assert results[0]["name"] == "run"
+        assert results[0]["complexity"] == 3
+
+    def test_complexity_ranking(self, query: GraphQuery) -> None:
+        results = query.get_complexity()
+        names = [r["name"] for r in results]
+        assert "run" in names
+        assert "_helper" in names
+        assert results[0]["complexity"] >= results[1]["complexity"]
+
+    def test_complexity_not_found(self, query: GraphQuery) -> None:
+        results = query.get_complexity("ghost")
+        assert results == []
+
+    def test_complexity_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+        from pygraph.commands.complexity import run
+        run(query, "run")
+        captured = capsys.readouterr()
+        assert "Complexity: 3" in captured.out
+        assert "run" in captured.out
+
+    def test_complexity_command_ranked_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+        from pygraph.commands.complexity import run
+        run(query)
+        captured = capsys.readouterr()
+        assert "Complexity" in captured.out
+        assert "run" in captured.out
+        assert "_helper" in captured.out
+
+
+class TestGetCoupling:
+    def test_coupling_for_symbol(self, query: GraphQuery) -> None:
+        results = query.get_coupling("run")
+        assert len(results) == 1
+        assert results[0]["name"] == "run"
+        assert results[0]["ce"] >= 1
+
+    def test_coupling_not_found(self, query: GraphQuery) -> None:
+        results = query.get_coupling("ghost")
+        assert results == []
+
+    def test_coupling_ranking(self, query: GraphQuery) -> None:
+        results = query.get_coupling()
+        assert len(results) > 0
+        assert all("ca" in r and "ce" in r and "instability" in r for r in results)
+
+    def test_coupling_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+        from pygraph.commands.coupling import run
+        run(query, "run")
+        captured = capsys.readouterr()
+        assert "Ca" in captured.out
+        assert "Ce" in captured.out
+        assert "Instability" in captured.out
+
+
+class TestGetHotspots:
+    def test_hotspots_found(self, query: GraphQuery) -> None:
+        results = query.get_hotspots(top_n=5)
+        assert len(results) > 0
+        assert all("score" in r and "complexity" in r and "coupling" in r for r in results)
+
+    def test_hotspot_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+        from pygraph.commands.hotspot import run
+        run(query, top_n=5)
+        captured = capsys.readouterr()
+        assert "Score" in captured.out
+        assert "Complexity" in captured.out
+        assert "Coupling" in captured.out
+
+
+class TestGetDeps:
+    def test_deps_found(self, query: GraphQuery) -> None:
+        results = query.get_deps()
+        assert len(results) >= 1
+        assert results[0]["module"] == "flask"
+        assert results[0]["version"] == "3.0"
+
+    def test_deps_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+        from pygraph.commands.deps import run
+        run(query)
+        captured = capsys.readouterr()
+        assert "flask" in captured.out
+        assert "3.0" in captured.out

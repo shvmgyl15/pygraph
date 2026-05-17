@@ -150,6 +150,23 @@ def extract_symbols(
     return symbols
 
 
+def _cyclomatic_complexity(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    complexity = 1
+    for child in ast.walk(node):
+        if isinstance(
+            child,
+            (ast.If, ast.While, ast.For, ast.AsyncFor, ast.ExceptHandler, ast.Assert),
+        ):
+            complexity += 1
+        elif isinstance(child, ast.BoolOp):
+            complexity += len(child.values) - 1
+        elif isinstance(child, ast.Match):
+            complexity += len(child.cases)
+        elif isinstance(child, ast.comprehension):
+            complexity += len(child.ifs)
+    return complexity
+
+
 def _function_to_symbol(
     node: ast.FunctionDef | ast.AsyncFunctionDef,
     file_path: str,
@@ -187,6 +204,7 @@ def _function_to_symbol(
         decorators=decorators,
         type_annotation=_get_return_annotation(node),
         arity=arity,
+        complexity=_cyclomatic_complexity(node),
     )
 
 

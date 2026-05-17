@@ -209,3 +209,212 @@ class TestExtractDependencies:
     def test_no_deps_file(self, tmp_path: Path) -> None:
         deps = extract_dependencies(str(tmp_path))
         assert deps == []
+
+
+class TestExtractFlask:
+    def test_route_detection(self) -> None:
+        src = """
+@view.route('/users')
+def list_users():
+    pass
+
+@view.route('/users/<int:id>', methods=['GET', 'POST'])
+def get_user(id):
+    pass
+"""
+        from pygraph.extractors.flask import extract_flask
+
+        result = extract_flask(src, "views.py")
+        assert len(result["routes"]) == 3
+        assert result["routes"][0].path == "/users"
+        assert result["routes"][0].method == "GET"
+        assert result["routes"][0].handler == "views.py::list_users"
+        assert result["routes"][1].method == "GET"
+        assert result["routes"][1].path == "/users/<int:id>"
+        assert result["routes"][2].method == "POST"
+        assert result["routes"][2].path == "/users/<int:id>"
+
+    def test_route_default_method(self) -> None:
+        src = "@bp.route('/')\ndef index(): pass\n"
+        from pygraph.extractors.flask import extract_flask
+
+        result = extract_flask(src, "routes.py")
+        assert len(result["routes"]) == 1
+        assert result["routes"][0].method == "GET"
+        assert result["routes"][0].path == "/"
+
+    def test_blueprint_detection(self) -> None:
+        src = """
+bp = Blueprint('admin', __name__)
+api = Blueprint('api', 'api_module')
+"""
+        from pygraph.extractors.flask import extract_flask
+
+        result = extract_flask(src, "blueprints.py")
+        assert len(result["blueprints"]) == 2
+        assert result["blueprints"][0].name == "admin"
+        assert result["blueprints"][0].import_name == ""
+        assert result["blueprints"][1].name == "api"
+        assert result["blueprints"][1].import_name == "api_module"
+
+    def test_blueprint_registration(self) -> None:
+        src = """
+app.register_blueprint(admin_bp, url_prefix='/admin')
+app.register_blueprint(api_bp)
+"""
+        from pygraph.extractors.flask import extract_flask
+
+        result = extract_flask(src, "app.py")
+        assert len(result["blueprint_registrations"]) == 2
+        reg = result["blueprint_registrations"][0]
+        assert reg.app_var == "app"
+        assert reg.blueprint_var == "admin_bp"
+        assert reg.url_prefix == "/admin"
+        reg2 = result["blueprint_registrations"][1]
+        assert reg2.blueprint_var == "api_bp"
+        assert reg2.url_prefix == ""
+
+    def test_template_rendering(self) -> None:
+        src = """
+def dashboard():
+    return render_template('dashboard.html', user=user)
+
+def email():
+    return render_template_string('<p>Hello</p>')
+"""
+        from pygraph.extractors.flask import extract_flask
+
+        result = extract_flask(src, "views.py")
+        assert len(result["template_refs"]) == 2
+        assert result["template_refs"][0].template_path == "dashboard.html"
+        assert result["template_refs"][0].function_name == "dashboard"
+        assert result["template_refs"][1].template_path == "<p>Hello</p>"
+        assert result["template_refs"][1].function_name == "email"
+
+    def test_error_handler(self) -> None:
+        src = """
+@app.errorhandler(404)
+def not_found(error):
+    return 'Not Found', 404
+
+@app.errorhandler(Exception)
+def server_error(error):
+    return 'Server Error', 500
+"""
+        from pygraph.extractors.flask import extract_flask
+
+        result = extract_flask(src, "app.py")
+        assert len(result["error_handlers"]) == 2
+        assert result["error_handlers"][0].method == "ERRORHANDLER"
+        assert result["error_handlers"][0].path == "404"
+        assert result["error_handlers"][0].handler == "app.py::not_found"
+        assert result["error_handlers"][1].path == "Exception"
+
+    def test_cli_command(self) -> None:
+        src = """
+@app.cli.command('seed-db')
+def seed_database():
+    pass
+
+@app.cli.command()
+def cleanup():
+    pass
+"""
+        from pygraph.extractors.flask import extract_flask
+
+        result = extract_flask(src, "app.py")
+        assert len(result["cli_commands"]) == 2
+        assert result["cli_commands"][0].method == "CLI"
+        assert result["cli_commands"][0].path == "seed-db"
+        assert result["cli_commands"][0].handler == "app.py::seed_database"
+        assert result["cli_commands"][1].path == "cleanup"
+
+    def test_extension_detection(self) -> None:
+        src = """
+from flask_sqlalchemy import SQLAlchemy
+import flask_migrate
+from flask_login import LoginManager
+
+db = SQLAlchemy()
+db.init_app(app)
+migrate.init_app(app)
+"""
+        from pygraph.extractors.flask import extract_flask
+
+        result = extract_flask(src, "app.py")
+        names = {e.name for e in result["extensions"]}
+        assert "flask_sqlalchemy" in names
+        assert "flask_migrate" in names
+        assert "flask_login" in names
+
+    def test_syntax_error_returns_empty(self) -> None:
+        from pygraph.extractors.flask import extract_flask
+
+        result = extract_flask("def foo( pass\n", "bad.py")
+        assert result["routes"] == []
+        assert result["blueprints"] == []
+        assert result["template_refs"] == []
+
+
+class TestComplexityExtraction:
+    def test_base_complexity_one(self) -> None:
+        src = "def foo():\n    pass\n"
+        symbols = extract_symbols(src, "test.py", "pkg")
+        assert symbols[0].complexity == 1
+
+    def test_if_adds_one(self) -> None:
+        src = "def foo(x):\n    if x > 0:\n        return x\n"
+        symbols = extract_symbols(src, "test.py", "pkg")
+        assert symbols[0].complexity == 2
+
+    def test_if_elif_adds_two(self) -> None:
+        src = "def foo(x):\n    if x > 0:\n        return 1\n    elif x < 0:\n        return -1\n"
+        symbols = extract_symbols(src, "test.py", "pkg")
+        assert symbols[0].complexity == 3
+
+    def test_loop_adds_one(self) -> None:
+        src = "def foo(items):\n    for i in items:\n        pass\n"
+        symbols = extract_symbols(src, "test.py", "pkg")
+        assert symbols[0].complexity == 2
+
+    def test_while_adds_one(self) -> None:
+        src = "def foo():\n    while True:\n        break\n"
+        symbols = extract_symbols(src, "test.py", "pkg")
+        assert symbols[0].complexity == 2
+
+    def test_except_adds_one_per_handler(self) -> None:
+        src = "def foo():\n    try:\n        pass\n    except ValueError:\n        pass\n    except TypeError:\n        pass\n"
+        symbols = extract_symbols(src, "test.py", "pkg")
+        assert symbols[0].complexity == 3
+
+    def test_and_or_adds_operators(self) -> None:
+        src = "def foo(a, b, c):\n    if a and b or c:\n        pass\n"
+        symbols = extract_symbols(src, "test.py", "pkg")
+        assert symbols[0].complexity == 4  # 1 base + 1 if + 1 and + 1 or
+
+    def test_assert_adds_one(self) -> None:
+        src = "def foo(x):\n    assert x > 0\n"
+        symbols = extract_symbols(src, "test.py", "pkg")
+        assert symbols[0].complexity == 2
+
+    def test_comprehension_if_adds_one(self) -> None:
+        src = "def foo(items):\n    return [x for x in items if x > 0]\n"
+        symbols = extract_symbols(src, "test.py", "pkg")
+        assert symbols[0].complexity == 2
+
+    def test_class_methods_have_complexity(self) -> None:
+        src = """
+class Service:
+    def simple(self):
+        pass
+    def complex(self, x):
+        if x:
+            return 1
+        return 0
+"""
+        symbols = extract_symbols(src, "test.py", "pkg")
+        names = {s.name: s for s in symbols}
+        assert names.get("simple") is not None
+        assert names.get("complex") is not None
+        assert names["simple"].complexity == 1
+        assert names["complex"].complexity == 2

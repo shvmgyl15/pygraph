@@ -48,6 +48,7 @@ class SymbolNode:
     struct_fields: list[StructField] = field(default_factory=list)
     embedded_types: list[str] = field(default_factory=list)
     arity: int | None = None
+    complexity: int | None = None
 
 
 @dataclass
@@ -97,6 +98,38 @@ class HTTPRoute:
     method: str = ""
     path: str = ""
     handler: str = ""
+    file: str = ""
+    line: int = 0
+
+
+@dataclass
+class BlueprintDef:
+    name: str = ""
+    import_name: str = ""
+    file: str = ""
+    line: int = 0
+
+
+@dataclass
+class BlueprintRegistration:
+    app_var: str = ""
+    blueprint_var: str = ""
+    url_prefix: str = ""
+    file: str = ""
+    line: int = 0
+
+
+@dataclass
+class TemplateRef:
+    template_path: str = ""
+    function_name: str = ""
+    file: str = ""
+    line: int = 0
+
+
+@dataclass
+class ExtensionUsage:
+    name: str = ""
     file: str = ""
     line: int = 0
 
@@ -157,6 +190,10 @@ class Graph:
     implements: list[ImplementsEdge] = field(default_factory=list)
     mutations: list[MutationEdge] = field(default_factory=list)
     errors: list[ErrorEdge] = field(default_factory=list)
+    blueprints: list[BlueprintDef] = field(default_factory=list)
+    blueprint_registrations: list[BlueprintRegistration] = field(default_factory=list)
+    template_refs: list[TemplateRef] = field(default_factory=list)
+    extensions: list[ExtensionUsage] = field(default_factory=list)
 
 
 def make_graph(*, project_root: str = "") -> Graph:
@@ -301,3 +338,31 @@ def make_struct_field(**overrides: Any) -> StructField:
     base: dict[str, Any] = {"name": "", "type": ""}
     base.update(overrides)
     return StructField(**{k: v for k, v in base.items() if v is not None})
+
+
+def make_blueprint_def(**overrides: Any) -> BlueprintDef:
+    base: dict[str, Any] = {"name": "", "import_name": "", "file": "", "line": 0}
+    base.update(overrides)
+    return BlueprintDef(**{k: v for k, v in base.items() if v is not None})
+
+
+def make_blueprint_registration(**overrides: Any) -> BlueprintRegistration:
+    base: dict[str, Any] = {
+        "app_var": "", "blueprint_var": "", "url_prefix": "", "file": "", "line": 0
+    }
+    base.update(overrides)
+    return BlueprintRegistration(**{k: v for k, v in base.items() if v is not None})
+
+
+def make_template_ref(**overrides: Any) -> TemplateRef:
+    base: dict[str, Any] = {
+        "template_path": "", "function_name": "", "file": "", "line": 0
+    }
+    base.update(overrides)
+    return TemplateRef(**{k: v for k, v in base.items() if v is not None})
+
+
+def make_extension_usage(**overrides: Any) -> ExtensionUsage:
+    base: dict[str, Any] = {"name": "", "file": "", "line": 0}
+    base.update(overrides)
+    return ExtensionUsage(**{k: v for k, v in base.items() if v is not None})
