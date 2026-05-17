@@ -210,3 +210,12 @@ def deps(
     query = _load_query(root)
     from pygraph.commands.deps import run
     run(query)
+
+
+@app.command()
+def mcp(
+    root: str = typer.Option(".", "--root", help="Project root directory"),
+) -> None:
+    """Start MCP stdio server for AI agent integration"""
+    from pygraph.server import run_server
+    run_server(root)

@@ -57,10 +57,10 @@
 - [x] Write traversal tests (169 tests, up from 159)
 
 ## Phase 8: MCP Server
-- [ ] MCP stdio server wrapping all query tools
-- [ ] Tool definition for each search/query command
-- [ ] MCP integration test
-- [ ] `--root` flag for running MCP server against any project
+- [x] MCP stdio server wrapping all query tools (`src/pygraph/server.py`)
+- [x] Tool definition for each search/query command (18 tools)
+- [x] MCP unit test (30 tests, unit-test style via `_query_override`)
+- [x] `--root` flag for running MCP server against any project
 
 ## Phase 9: Advanced Features
 - [ ] boundaries (architecture enforcement via .pygraph/boundaries.json)
