@@ -8,6 +8,7 @@ dependencies = [
     "astroid>=3.3",
     "mcp>=1.0",
     "pydantic>=2.0",
+    "pathspec>=1.1.1",
 ]
 
 [project.scripts]

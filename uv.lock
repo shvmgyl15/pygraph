@@ -809,6 +809,7 @@ source = { editable = "." }
 dependencies = [
     { name = "astroid" },
     { name = "mcp" },
+    { name = "pathspec" },
     { name = "pydantic" },
     { name = "typer" },
 ]
@@ -825,6 +826,7 @@ dev = [
 requires-dist = [
     { name = "astroid", specifier = ">=3.3" },
     { name = "mcp", specifier = ">=1.0" },
+    { name = "pathspec", specifier = ">=1.1.1" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "typer", specifier = ">=0.12" },
 ]

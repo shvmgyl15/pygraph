@@ -12,18 +12,18 @@
 - [x] Setup pytest config (conftest.py, test fixtures)
 
 ## Phase 2: Core Data Model
-- [ ] Define graph types (Graph, PackageNode, FileNode, SymbolNode, Edge, etc.)
-- [ ] Add JSON serialization / deserialization (pydantic or dataclasses)
-- [ ] Write unit tests for graph types
+- [x] Define graph types (Graph, PackageNode, FileNode, SymbolNode, and all edge types)
+- [x] Add JSON serialization / deserialization (dataclasses)
+- [x] Write unit tests for graph types (42 tests)
 
 ## Phase 3: Scanner + Parser Core
-- [ ] Implement file scanner (walk tree, gitignore support, file classification)
-- [ ] Implement symbol extractor (astroid: functions, classes, methods, variables, constants)
-- [ ] Implement call expression extractor
-- [ ] Implement import edge + dependency extractor (importlib.metadata or requirements)
-- [ ] Implement decorator tracking
-- [ ] Wire up `build` command end-to-end
-- [ ] Write parser/scanner unit tests
+- [x] Implement file scanner (walk tree, gitignore support, file classification)
+- [x] Implement symbol extractor (ast: functions, classes, methods, variables, constants)
+- [x] Implement call expression extractor
+- [x] Implement import edge + dependency extractor (requirements.txt, pyproject.toml)
+- [x] Implement decorator tracking (inline in symbol extraction)
+- [x] Wire up `build` command end-to-end (builder.py orchestrates scan → parse → write)
+- [x] Write parser/scanner unit tests (25 tests for scanner + extractors)
 
 ## Phase 4: Query Commands
 - [ ] callers / callees
