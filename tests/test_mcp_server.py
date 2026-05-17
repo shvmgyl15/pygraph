@@ -167,6 +167,9 @@ EXPECTED_TOOLS = {
     "query", "context", "imports", "public", "focus",
     "impact", "path", "orphans", "trace",
     "complexity", "coupling", "hotspots", "deps",
+    "boundaries", "changes", "stale",
+    "plan", "review",
+    "add_opencode_plugin", "graph_report",
 }
 
 

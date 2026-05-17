@@ -63,9 +63,9 @@
 - [x] `--root` flag for running MCP server against any project
 
 ## Phase 9: Advanced Features
-- [ ] boundaries (architecture enforcement via .pygraph/boundaries.json)
-- [ ] changes / stale (git-aware incremental analysis)
-- [ ] plan / review (change planning reports)
-- [ ] add-opencode-plugin (auto-configure opencode MCP + agent)
-- [ ] Enhanced GRAPH_REPORT.md (hotspots, boundaries, coupling, stale)
-- [ ] Incremental builds (file mtime tracking, skip rebuild when unchanged)
+- [x] boundaries (architecture enforcement via .pygraph/boundaries.json) — `src/pygraph/graph/boundaries.py`, `src/pygraph/commands/boundaries.py`, MCP tool, CLI + 15 tests
+- [x] Incremental builds (mtime tracking, merge unchanged data, skip re-parse) — `src/pygraph/graph/cache.py`, `src/pygraph/builder.py` refactored, 20 tests
+- [x] changes / stale (git-aware incremental analysis) — `get_changes(since)`, `get_stale(days)` in query.py, CLI commands, MCP tools, 10 tests
+- [x] plan / review (change planning reports) — `get_plan()` in query.py, CLI `pygraph plan` / `pygraph review`, MCP tools, Markdown output, 7 tests
+- [x] add-opencode-plugin (auto-configure opencode MCP + agent) — `src/pygraph/commands/opencode_plugin.py`, creates `.opencode.json` with pygraph MCP server + architect agent, MCP tool
+- [x] Enhanced GRAPH_REPORT.md (hotspots, boundaries, coupling, stale) — `get_graph_report()` in query.py, CLI `pygraph graph-report`, MCP tool, Markdown output with overview + symbols by kind + hotspots + coupling top 10

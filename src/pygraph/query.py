@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import time
 from collections import deque
 from pathlib import Path
 from typing import Any
 
+from pygraph.graph.boundaries import BoundaryConfig, load_boundary_config
+from pygraph.graph.serialize import deserialize
 from pygraph.graph.types import CallEdge, FileNode, Graph, ImportEdge, SymbolNode
 
 
@@ -499,3 +503,299 @@ class GraphQuery:
             })
 
         return result
+
+    def get_boundary_violations(
+        self, config_path: str = ""
+    ) -> list[dict[str, Any]]:
+        search_root = Path(self.root)
+        candidates = [
+            search_root / ".pygraph" / "boundaries.json",
+            Path(config_path) if config_path else None,
+        ]
+        cfg: BoundaryConfig | None = None
+        for p in candidates:
+            if p and p.exists():
+                cfg = load_boundary_config(str(p))
+                break
+        if cfg is None:
+            return []
+
+        violations: list[dict[str, Any]] = []
+
+        for call in self.graph.calls:
+            caller_sym = self._symbols_by_id.get(call.caller_symbol_id)
+            if not caller_sym:
+                continue
+
+            caller_layer = cfg.layer_for(caller_sym.file)
+            if caller_layer is None:
+                continue
+
+            callee_sym = _resolve_callee(
+                call.callee_raw,
+                self._symbols_by_name,
+                self._symbols_by_receiver,
+            )
+            if not callee_sym:
+                continue
+
+            callee_layer = cfg.layer_for(callee_sym.file)
+            if callee_layer is None:
+                continue
+
+            if not cfg.is_allowed(caller_layer, callee_layer):
+                violations.append({
+                    "from": caller_sym.name,
+                    "to": callee_sym.name,
+                    "from_layer": caller_layer,
+                    "to_layer": callee_layer,
+                    "file": call.file,
+                    "line": call.line,
+                })
+
+        return violations
+
+    def _load_git_graph(self, since: str) -> Graph | None:
+        try:
+            result = subprocess.run(
+                ["git", "show", f"{since}:.pygraph/graph.json"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode != 0:
+                return None
+            return deserialize(result.stdout)
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError, ValueError):
+            return None
+
+    def _symbol_key(self, sym: SymbolNode) -> tuple[str, str | None]:
+        return (sym.name, sym.receiver)
+
+    def get_changes(
+        self, since: str = "HEAD"
+    ) -> dict[str, list[dict[str, Any]]]:
+        old_graph = self._load_git_graph(since)
+        if old_graph is None:
+            return {"error": [{"message": f"Could not load graph at '{since}'"}]}
+
+        old_syms: dict[tuple[str, str | None], SymbolNode] = {}
+        for s in old_graph.symbols:
+            old_syms[self._symbol_key(s)] = s
+
+        new_syms: dict[tuple[str, str | None], SymbolNode] = {}
+        for s in self.graph.symbols:
+            new_syms[self._symbol_key(s)] = s
+
+        old_keys = set(old_syms)
+        new_keys = set(new_syms)
+
+        added_keys = new_keys - old_keys
+        removed_keys = old_keys - new_keys
+        common_keys = old_keys & new_keys
+
+        added = [self._sym_diff_dict(new_syms[k]) for k in added_keys]
+        removed = [self._sym_diff_dict(old_syms[k]) for k in removed_keys]
+
+        changed: list[dict[str, Any]] = []
+        for k in common_keys:
+            old_s = old_syms[k]
+            new_s = new_syms[k]
+            if (
+                old_s.signature != new_s.signature
+                or old_s.complexity != new_s.complexity
+                or old_s.is_exported != new_s.is_exported
+                or old_s.file != new_s.file
+                or old_s.doc != new_s.doc
+            ):
+                changed.append({
+                    "name": k[0],
+                    "receiver": k[1],
+                    "old_file": old_s.file,
+                    "new_file": new_s.file,
+                    "old_signature": old_s.signature,
+                    "new_signature": new_s.signature,
+                    "old_complexity": old_s.complexity,
+                    "new_complexity": new_s.complexity,
+                    "old_exported": old_s.is_exported,
+                    "new_exported": new_s.is_exported,
+                })
+
+        old_call_set = {
+            (c.caller_name, c.callee_raw) for c in old_graph.calls
+        }
+        new_call_set = {
+            (c.caller_name, c.callee_raw) for c in self.graph.calls
+        }
+
+        added_calls = [
+            {"caller": c, "callee": cal}
+            for c, cal in (new_call_set - old_call_set)
+        ]
+        removed_calls = [
+            {"caller": c, "callee": cal}
+            for c, cal in (old_call_set - new_call_set)
+        ]
+
+        return {
+            "added_symbols": added,
+            "removed_symbols": removed,
+            "changed_symbols": changed,
+            "added_calls": added_calls,
+            "removed_calls": removed_calls,
+        }
+
+    def _sym_diff_dict(self, sym: SymbolNode) -> dict[str, Any]:
+        return {
+            "name": sym.name,
+            "receiver": sym.receiver,
+            "kind": sym.kind,
+            "file": sym.file,
+            "line": sym.line,
+            "signature": sym.signature,
+            "complexity": sym.complexity,
+            "is_exported": sym.is_exported,
+        }
+
+    def get_stale(self, days: int = 30) -> list[dict[str, Any]]:
+        cutoff = time.time() - (days * 86400)
+        stale: list[dict[str, Any]] = []
+
+        for fnode in self.graph.files:
+            full_path = Path(self.root) / fnode.path
+            try:
+                mtime = full_path.stat().st_mtime
+            except OSError:
+                continue
+            if mtime < cutoff:
+                file_syms = [
+                    self._sym_diff_dict(s)
+                    for s in self.graph.symbols
+                    if s.file == fnode.path
+                ]
+                stale.append({
+                    "file": fnode.path,
+                    "mtime": mtime,
+                    "days_since_modification": int((time.time() - mtime) / 86400),
+                    "symbols": file_syms,
+                })
+
+        stale.sort(key=lambda x: x["days_since_modification"], reverse=True)
+        return stale
+
+    def get_graph_report(self) -> dict[str, Any]:
+        syms = self.graph.symbols
+        kinds: dict[str, int] = {}
+        for s in syms:
+            kinds[s.kind] = kinds.get(s.kind, 0) + 1
+
+        exported = sum(1 for s in syms if s.is_exported)
+        total_files = len(self.graph.files)
+        total_calls = len(self.graph.calls)
+        total_routes = len(self.graph.routes)
+        total_deps = len(self.graph.dependencies)
+        total_tests = len(self.graph.test_edges)
+
+        hotspots = self.get_hotspots(10)
+        coupling_ranked = self.get_coupling()[:10]
+
+        return {
+            "summary": {
+                "total_symbols": len(syms),
+                "exported": exported,
+                "files": total_files,
+                "calls": total_calls,
+                "routes": total_routes,
+                "dependencies": total_deps,
+                "tests": total_tests,
+            },
+            "symbols_by_kind": kinds,
+            "hotspots": hotspots,
+            "coupling": coupling_ranked,
+        }
+
+    def get_plan(self, since: str = "HEAD") -> dict[str, Any]:
+        changes = self.get_changes(since)
+
+        if "error" in changes:
+            return {"error": changes["error"]}
+
+        all_changed_names: set[str] = set()
+        for s in changes.get("added_symbols", []):
+            all_changed_names.add(s["name"])
+        for s in changes.get("removed_symbols", []):
+            all_changed_names.add(s["name"])
+        for s in changes.get("changed_symbols", []):
+            all_changed_names.add(s["name"])
+
+        affected_tests: list[dict[str, Any]] = []
+        test_targets = {te.target for te in self.graph.test_edges}
+        for name in all_changed_names:
+            if name in test_targets:
+                for te in self.graph.test_edges:
+                    if te.target == name:
+                        affected_tests.append({
+                            "test_func": te.test_func,
+                            "target": te.target,
+                            "file": te.file,
+                            "line": te.line,
+                        })
+
+        changed_files: set[str] = set()
+        for s in changes.get("added_symbols", []):
+            changed_files.add(s.get("file", ""))
+        for s in changes.get("removed_symbols", []):
+            changed_files.add(s.get("file", ""))
+        for s in changes.get("changed_symbols", []):
+            changed_files.add(s.get("new_file", ""))
+            changed_files.add(s.get("old_file", ""))
+        changed_files.discard("")
+
+        changed_modules: set[str] = set()
+        for f in changed_files:
+            parts = f.split("/")
+            if len(parts) >= 2:
+                changed_modules.add(parts[0])
+
+        risk_items: list[dict[str, Any]] = []
+        for s in changes.get("changed_symbols", []):
+            new_cplx = s.get("new_complexity") or 1
+            coupling = 0
+            for call in self.graph.calls:
+                if call.caller_name == s["name"]:
+                    coupling += 1
+            score = new_cplx * max(coupling, 1)
+            risk_items.append({
+                "name": s["name"],
+                "complexity": new_cplx,
+                "coupling": coupling,
+                "score": score,
+            })
+        for s in changes.get("added_symbols", []):
+            cplx = s.get("complexity") or 1
+            coupling = 0
+            for call in self.graph.calls:
+                if call.caller_name == s["name"]:
+                    coupling += 1
+            score = cplx * max(coupling, 1)
+            risk_items.append({
+                "name": s["name"],
+                "complexity": cplx,
+                "coupling": coupling,
+                "score": score,
+            })
+        risk_items.sort(key=lambda x: x["score"], reverse=True)
+
+        total_risk = sum(r["score"] for r in risk_items)
+
+        return {
+            "summary": {
+                "files_changed": sorted(changed_files),
+                "modules_changed": sorted(changed_modules),
+                "symbols_added": len(changes.get("added_symbols", [])),
+                "symbols_removed": len(changes.get("removed_symbols", [])),
+                "symbols_changed": len(changes.get("changed_symbols", [])),
+                "total_risk_score": total_risk,
+            },
+            "changes": changes,
+            "affected_tests": affected_tests,
+            "risk_items": risk_items,
+        }

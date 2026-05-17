@@ -213,9 +213,94 @@ def deps(
 
 
 @app.command()
+def boundaries(
+    config: str = typer.Option(
+        "", "--config", "-c", help="Path to boundaries.json"
+    ),
+    root: str = typer.Option(".", "--root", help="Project root directory"),
+) -> None:
+    """Check architecture boundary violations"""
+    query = _load_query(root)
+    from pygraph.commands.boundaries import run
+    run(query, config)
+
+
+@app.command()
+def changes(
+    since: str = typer.Option(
+        "HEAD", "--since", "-s", help="Git ref to compare against"
+    ),
+    root: str = typer.Option(".", "--root", help="Project root directory"),
+) -> None:
+    """Show symbol changes since a git ref"""
+    query = _load_query(root)
+    from pygraph.commands.changes import run
+    run(query, since)
+
+
+@app.command()
+def stale(
+    days: int = typer.Option(
+        30, "--days", "-d", help="Days threshold for staleness"
+    ),
+    root: str = typer.Option(".", "--root", help="Project root directory"),
+) -> None:
+    """List files not modified in N days with their symbols"""
+    query = _load_query(root)
+    from pygraph.commands.stale import run
+    run(query, days)
+
+
+@app.command()
+def plan(
+    since: str = typer.Option(
+        "HEAD", "--since", "-s", help="Git ref to compare against"
+    ),
+    root: str = typer.Option(".", "--root", help="Project root directory"),
+) -> None:
+    """Generate a change plan report"""
+    query = _load_query(root)
+    from pygraph.commands.plan import run
+    run(query, since)
+
+
+@app.command()
+def review(
+    since: str = typer.Option(
+        "HEAD", "--since", "-s", help="Git ref to compare against"
+    ),
+    root: str = typer.Option(".", "--root", help="Project root directory"),
+) -> None:
+    """Generate a Markdown code review report"""
+    query = _load_query(root)
+    from pygraph.commands.review import run
+    run(query, since)
+
+
+@app.command()
 def mcp(
     root: str = typer.Option(".", "--root", help="Project root directory"),
 ) -> None:
     """Start MCP stdio server for AI agent integration"""
     from pygraph.server import run_server
     run_server(root)
+
+
+@app.command()
+def add_opencode_plugin(
+    root: str = typer.Option(".", "--root", help="Project root directory"),
+) -> None:
+    """Create .opencode.json with pygraph MCP config + architect agent"""
+    query = _load_query(root)
+    from pygraph.commands.opencode_plugin import run
+    run(query, root)
+
+
+@app.command(name="graph-report")
+def graph_report(
+    root: str = typer.Option(".", "--root", help="Project root directory"),
+) -> None:
+    """Generate a Markdown report about the codebase graph"""
+    query = _load_query(root)
+    from pygraph.commands.graph_report import run
+    run(query)

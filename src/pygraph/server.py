@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -268,6 +269,173 @@ def deps(root: str = ".") -> list[dict[str, Any]]:
     """List external dependencies"""
     q = create_query(root)
     return q.get_deps()
+
+
+@server.tool()
+def boundaries(
+    config: str = "", root: str = "."
+) -> list[dict[str, Any]]:
+    """Check architecture boundary violations"""
+    q = create_query(root)
+    return q.get_boundary_violations(config)
+
+
+@server.tool()
+def changes(
+    since: str = "HEAD", root: str = "."
+) -> dict[str, Any]:
+    """Show symbol changes since a git ref"""
+    q = create_query(root)
+    return q.get_changes(since)
+
+
+@server.tool()
+def stale(days: int = 30, root: str = ".") -> list[dict[str, Any]]:
+    """List files not modified in N days with their symbols"""
+    q = create_query(root)
+    return q.get_stale(days)
+
+
+@server.tool()
+def plan(
+    since: str = "HEAD", root: str = "."
+) -> dict[str, Any]:
+    """Generate a change plan report"""
+    q = create_query(root)
+    return q.get_plan(since)
+
+
+@server.tool()
+def review(
+    since: str = "HEAD", root: str = "."
+) -> str:
+    """Generate a Markdown code review report"""
+    q = create_query(root)
+    plan_data = q.get_plan(since)
+    if "error" in plan_data:
+        return str(plan_data["error"][0]["message"])
+
+    lines: list[str] = []
+    lines.append("# Code Review Report\n")
+    s = plan_data["summary"]
+    lines.append(f"**Scope:** {len(s['files_changed'])} files across "
+                 f"{len(s['modules_changed'])} modules\n")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|-------|")
+    lines.append(f"| Symbols added | {s['symbols_added']} |")
+    lines.append(f"| Symbols removed | {s['symbols_removed']} |")
+    lines.append(f"| Symbols changed | {s['symbols_changed']} |")
+    lines.append(f"| Files touched | {len(s['files_changed'])} |")
+    lines.append(f"| Risk score | {s['total_risk_score']} |\n")
+
+    changes = plan_data["changes"]
+    if changes.get("added_symbols"):
+        lines.append("## Added Symbols\n")
+        for sym in changes["added_symbols"]:
+            lines.append(f"- `{sym['name']}` ({sym['kind']}) — "
+                         f"`{sym['file']}:{sym['line']}`")
+
+    if changes.get("removed_symbols"):
+        lines.append("\n## Removed Symbols\n")
+        for sym in changes["removed_symbols"]:
+            lines.append(f"- `{sym['name']}` ({sym['kind']}) — "
+                         f"was `{sym['file']}:{sym['line']}`")
+
+    if changes.get("changed_symbols"):
+        lines.append("\n## Changed Symbols\n")
+        for sym in changes["changed_symbols"]:
+            lines.append(f"- `{sym['name']}`")
+            if sym.get("old_signature") != sym.get("new_signature"):
+                lines.append(f"  - Signature: `{sym['old_signature']}` → "
+                             f"`{sym['new_signature']}`")
+            if sym.get("old_complexity") != sym.get("new_complexity"):
+                lines.append(f"  - Complexity: {sym['old_complexity']} → "
+                             f"{sym['new_complexity']}")
+
+    if plan_data.get("affected_tests"):
+        lines.append("\n## Related Tests\n")
+        for t in plan_data["affected_tests"]:
+            lines.append(f"- `{t['test_func']}` tests `{t['target']}`")
+
+    if plan_data.get("risk_items"):
+        lines.append("\n## Risk Assessment\n")
+        lines.append("| Symbol | Score | Complexity | Coupling |")
+        lines.append("|--------|-------|------------|----------|")
+        for r in plan_data["risk_items"][:10]:
+            lines.append(f"| {r['name']} | {r['score']} | "
+                         f"{r['complexity']} | {r['coupling']} |")
+
+    return "\n".join(lines)
+
+
+@server.tool()
+def add_opencode_plugin(root: str = ".") -> str:
+    """Create .opencode.json with pygraph MCP config"""
+    q = create_query(root)
+    root_path = Path(root).resolve()
+    config_path = root_path / ".opencode.json"
+
+    config = {
+        "$schema": "https://opencode.ai/config.json",
+        "mcp_servers": {
+            "pygraph": {
+                "command": "uv",
+                "args": ["run", "pygraph", "mcp", "--root", str(root_path)],
+                "env": {},
+            },
+        },
+        "agents": {
+            "architect": {
+                "model": "opencode-go/deepseek-v4-flash",
+                "instructions": [
+                    "Use pygraph MCP tools to query the code graph.",
+                    "Check architecture boundaries before suggesting changes.",
+                ],
+            },
+        },
+    }
+
+    config_path.write_text(json.dumps(config, indent=2))
+    return f"Created {config_path}"
+
+
+@server.tool()
+def graph_report(root: str = ".") -> str:
+    """Generate a Markdown report about the codebase graph"""
+    q = create_query(root)
+    report = q.get_graph_report()
+    s = report["summary"]
+
+    lines: list[str] = []
+    lines.append("# Graph Report\n")
+    lines.append("## Overview\n")
+    lines.append("| Metric | Value |")
+    lines.append("|--------|-------|")
+    lines.append(f"| Symbols | {s['total_symbols']} |")
+    lines.append(f"| Exported | {s['exported']} |")
+    lines.append(f"| Files | {s['files']} |")
+    lines.append(f"| Call edges | {s['calls']} |")
+    lines.append(f"| Routes | {s['routes']} |")
+    lines.append(f"| Dependencies | {s['dependencies']} |")
+    lines.append(f"| Test edges | {s['tests']} |\n")
+
+    kinds = report["symbols_by_kind"]
+    if kinds:
+        lines.append("## Symbols by Kind\n")
+        lines.append("| Kind | Count |")
+        lines.append("|------|-------|")
+        for kind in sorted(kinds):
+            lines.append(f"| {kind} | {kinds[kind]} |")
+
+    if report["hotspots"]:
+        lines.append("\n## Hotspots (Top 10)\n")
+        lines.append("| Score | Complexity | Coupling | Name | File |")
+        lines.append("|-------|------------|----------|------|------|")
+        for h in report["hotspots"]:
+            lines.append(f"| {h['score']} | {h['complexity']} | "
+                         f"{h['coupling']} | {h['name']} | {h['file']} |")
+
+    return "\n".join(lines)
 
 
 def run_server(root: str = ".") -> None:
