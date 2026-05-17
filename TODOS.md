@@ -4,7 +4,7 @@
 - [x] Update opencode.json with AGENTS.md reference
 - [x] Create AGENTS.md with project DNA
 - [x] Create TODOS.md (this file)
-- [.] Git init + Phase 1 commit
+- [x] Git init + Phase 1 commit
 - [x] Initialize pyproject.toml with dependencies (typer, astroid, mcp, pytest, mypy, ruff)
 - [x] Configure mypy (strict mode)
 - [x] Configure ruff (PEP 8, import sorting)

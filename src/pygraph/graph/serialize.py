@@ -1,94 +1,142 @@
 from __future__ import annotations
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from pygraph.graph.types import Edge, FileNode, Graph, PackageNode, Position, SymbolNode
+from pygraph.graph.types import (
+    SCHEMA_VERSION,
+    CallEdge,
+    Dependency,
+    EnvRead,
+    ErrorEdge,
+    FileNode,
+    Graph,
+    HTTPRoute,
+    ImplementsEdge,
+    ImportEdge,
+    MutationEdge,
+    PackageNode,
+    StructField,
+    SymbolNode,
+    TestEdge,
+)
+
+ARRAY_FIELDS: set[str] = {
+    "packages", "files", "symbols", "calls", "imports", "routes",
+    "env_reads", "dependencies", "test_edges", "implements",
+    "mutations", "errors",
+}
+
+REQUIRED_FIELDS: set[str] = ARRAY_FIELDS | {"schema_version", "generated_at", "project_root"}
+
+
+def _filter_none(obj: dict[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in obj.items() if v is not None}
 
 
 def graph_to_dict(graph: Graph) -> dict[str, Any]:
-    packages = {
-        k: {"name": v.name, "path": v.path, "files": v.files}
-        for k, v in graph.packages.items()
-    }
-    files = {
-        k: {"path": v.path, "package": v.package, "symbols": v.symbols}
-        for k, v in graph.files.items()
-    }
-    symbols = {
-        k: {
-            "name": v.name,
-            "kind": v.kind,
-            "file": v.file,
-            "pos": {"line": v.pos.line, "column": v.pos.column},
-            "end_pos": {"line": v.end_pos.line, "column": v.end_pos.column}
-            if v.end_pos
-            else None,
-            "docstring": v.docstring,
-            "is_exported": v.is_exported,
-            "decorators": v.decorators,
-            "extra": v.extra,
-        }
-        for k, v in graph.symbols.items()
-    }
-    edges = [
-        {"source": e.source, "target": e.target, "kind": e.kind}
-        for e in graph.edges
-    ]
-    return {
+    return _filter_none({
         "schema_version": graph.schema_version,
+        "generated_at": graph.generated_at,
         "project_root": graph.project_root,
-        "packages": packages,
-        "files": files,
-        "symbols": symbols,
-        "edges": edges,
-    }
+        "packages": [_filter_none(asdict(p)) for p in graph.packages],
+        "files": [_filter_none(asdict(f)) for f in graph.files],
+        "symbols": [_filter_none(asdict(s)) for s in graph.symbols],
+        "calls": [_filter_none(asdict(c)) for c in graph.calls],
+        "imports": [_filter_none(asdict(i)) for i in graph.imports],
+        "routes": [_filter_none(asdict(r)) for r in graph.routes],
+        "env_reads": [_filter_none(asdict(e)) for e in graph.env_reads],
+        "dependencies": [_filter_none(asdict(d)) for d in graph.dependencies],
+        "test_edges": [_filter_none(asdict(t)) for t in graph.test_edges],
+        "implements": [_filter_none(asdict(i)) for i in graph.implements],
+        "mutations": [_filter_none(asdict(m)) for m in graph.mutations],
+        "errors": [_filter_none(asdict(e)) for e in graph.errors],
+    })
+
+
+def _dict_to_symbol(data: dict[str, Any]) -> SymbolNode:
+    fields = data.copy()
+    fields.setdefault("decorators", [])
+    fields.setdefault("bases", [])
+    fields.setdefault("struct_fields", [])
+    fields.setdefault("embedded_types", [])
+    raw_struct_fields = fields.get("struct_fields", [])
+    fields["struct_fields"] = [
+        StructField(**sf) if isinstance(sf, dict) else sf
+        for sf in raw_struct_fields
+    ]
+    return SymbolNode(**{k: v for k, v in fields.items() if v is not None})
 
 
 def dict_to_graph(data: dict[str, Any]) -> Graph:
-    packages: dict[str, PackageNode] = {}
-    for k, v in data.get("packages", {}).items():
-        packages[k] = PackageNode(name=v["name"], path=v["path"], files=v["files"])
-
-    files: dict[str, FileNode] = {}
-    for k, v in data.get("files", {}).items():
-        files[k] = FileNode(path=v["path"], package=v["package"], symbols=v["symbols"])
-
-    symbols: dict[str, SymbolNode] = {}
-    for k, v in data.get("symbols", {}).items():
-        pos = Position(**v["pos"])
-        end_pos = Position(**v["end_pos"]) if v.get("end_pos") else None
-        symbols[k] = SymbolNode(
-            name=v["name"],
-            kind=v["kind"],
-            file=v["file"],
-            pos=pos,
-            end_pos=end_pos,
-            docstring=v.get("docstring"),
-            is_exported=v.get("is_exported", True),
-            decorators=v.get("decorators", []),
-            extra=v.get("extra", {}),
-        )
-
-    edges = [Edge(**e) for e in data.get("edges", [])]
-
     return Graph(
-        schema_version=data.get("schema_version", "1"),
-        project_root=data.get("project_root", ""),
-        packages=packages,
-        files=files,
-        symbols=symbols,
-        edges=edges,
+        schema_version=data["schema_version"],
+        generated_at=data["generated_at"],
+        project_root=data["project_root"],
+        packages=[PackageNode(**p) for p in data["packages"]],
+        files=[FileNode(**f) for f in data["files"]],
+        symbols=[_dict_to_symbol(s) for s in data["symbols"]],
+        calls=[CallEdge(**c) for c in data["calls"]],
+        imports=[ImportEdge(**i) for i in data["imports"]],
+        routes=[HTTPRoute(**r) for r in data["routes"]],
+        env_reads=[EnvRead(**e) for e in data["env_reads"]],
+        dependencies=[Dependency(**d) for d in data["dependencies"]],
+        test_edges=[TestEdge(**t) for t in data["test_edges"]],
+        implements=[ImplementsEdge(**im) for im in data["implements"]],
+        mutations=[MutationEdge(**mu) for mu in data["mutations"]],
+        errors=[ErrorEdge(**er) for er in data["errors"]],
     )
+
+
+def serialize(graph: Graph) -> str:
+    if graph.schema_version != SCHEMA_VERSION:
+        msg = f"Graph version mismatch: expected {SCHEMA_VERSION}, got {graph.schema_version}"
+        raise ValueError(msg)
+    return json.dumps(graph_to_dict(graph), indent=2)
+
+
+def _ensure_fields(parsed: dict[str, Any]) -> None:
+    for field_name in REQUIRED_FIELDS:
+        if field_name not in parsed:
+            msg = f"Missing required field: {field_name}"
+            raise ValueError(msg)
+    for field_name in ARRAY_FIELDS:
+        if not isinstance(parsed[field_name], list):
+            msg = f"Field '{field_name}' must be a list"
+            raise ValueError(msg)
+
+
+def deserialize(json_str: str) -> Graph:
+    try:
+        parsed = json.loads(json_str)
+    except json.JSONDecodeError as e:
+        msg = f"Invalid JSON: {e}"
+        raise ValueError(msg) from e
+
+    if not isinstance(parsed, dict):
+        msg = "Invalid graph structure: expected a JSON object"
+        raise ValueError(msg)
+
+    _ensure_fields(parsed)
+
+    if parsed["schema_version"] != SCHEMA_VERSION:
+        msg = (
+            f"Graph version mismatch: expected {SCHEMA_VERSION}, "
+            f"got {parsed['schema_version']}"
+        )
+        raise ValueError(msg)
+
+    return dict_to_graph(parsed)
 
 
 def write_graph(graph: Graph, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        json.dump(graph_to_dict(graph), f, indent=2)
+        f.write(serialize(graph))
 
 
 def read_graph(path: Path) -> Graph:
     with open(path) as f:
-        return dict_to_graph(json.load(f))
+        return deserialize(f.read())
