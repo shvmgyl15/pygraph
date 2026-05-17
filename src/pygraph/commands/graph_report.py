@@ -9,11 +9,11 @@ def run(query: GraphQuery) -> None:
     s = report["summary"]
 
     print("# Graph Report\n")
-    print(f"Generated from `.pygraph/graph.json`\n")
+    print("Generated from `.pygraph/graph.json`\n")
 
     print("## Overview\n")
-    print(f"| Metric | Value |")
-    print(f"|--------|-------|")
+    print("| Metric | Value |")
+    print("|--------|-------|")
     print(f"| Symbols | {s['total_symbols']} |")
     print(f"| Exported | {s['exported']} |")
     print(f"| Files | {s['files']} |")
@@ -25,16 +25,16 @@ def run(query: GraphQuery) -> None:
     kinds = report["symbols_by_kind"]
     if kinds:
         print("## Symbols by Kind\n")
-        print(f"| Kind | Count |")
-        print(f"|------|-------|")
+        print("| Kind | Count |")
+        print("|------|-------|")
         for kind in sorted(kinds):
             print(f"| {kind} | {kinds[kind]} |")
         print()
 
     if report["hotspots"]:
         print("## Hotspots (Top 10)\n")
-        print(f"| Score | Complexity | Coupling | Name | File |")
-        print(f"|-------|------------|----------|------|------|")
+        print("| Score | Complexity | Coupling | Name | File |")
+        print("|-------|------------|----------|------|------|")
         for h in report["hotspots"]:
             print(f"| {h['score']} | {h['complexity']} | "
                   f"{h['coupling']} | {h['name']} | {h['file']} |")
@@ -42,8 +42,8 @@ def run(query: GraphQuery) -> None:
 
     if report["coupling"]:
         print("## Coupling (Top 10)\n")
-        print(f"| Name | Ca | Ce | Instability |")
-        print(f"|------|----|----|-------------|")
+        print("| Name | Ca | Ce | Instability |")
+        print("|------|----|----|-------------|")
         for c in report["coupling"]:
             print(f"| {c['name']} | {c['ca']} | {c['ce']} | "
                   f"{c['instability']} |")

@@ -29,11 +29,9 @@ def run(query: GraphQuery, root: str = ".") -> None:
             "architect": {
                 "model": "opencode-go/deepseek-v4-flash",
                 "instructions": [
-                    "You are a software architect. Use the pygraph MCP tools to understand the codebase before making changes.",
-                    "Query the code graph to find symbols, their callers/callees, and dependencies.",
+                    "Use pygraph MCP tools to understand the codebase.",
+                    "Query the code graph to find symbols, their callers, and callees.",
                     "Check architecture boundaries before suggesting cross-layer changes.",
-                    "Use `pygraph boundaries` to verify architectural compliance.",
-                    "Use `pygraph plan` to understand the impact of proposed changes.",
                 ],
             },
         },

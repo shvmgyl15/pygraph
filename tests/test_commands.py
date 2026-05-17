@@ -453,7 +453,9 @@ class TestGraphSerialization:
 
 
 class TestCommandOutput:
-    def test_node_command_shows_fields(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_node_command_shows_fields(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.node import run
         run(query, "run")
         captured = capsys.readouterr()
@@ -461,83 +463,109 @@ class TestCommandOutput:
         assert "function" in captured.out
         assert "app.py" in captured.out
 
-    def test_node_command_not_found(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_node_command_not_found(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.node import run
         run(query, "ghost")
         captured = capsys.readouterr()
         assert "not found" in captured.out
 
-    def test_public_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_public_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.public import run
         run(query)
         captured = capsys.readouterr()
         assert "run" in captured.out
         assert "_helper" not in captured.out
 
-    def test_callers_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_callers_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.callers import run
         run(query, "setup")
         captured = capsys.readouterr()
         assert "run" in captured.out
 
-    def test_callees_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_callees_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.callees import run
         run(query, "run")
         captured = capsys.readouterr()
         assert "setup" in captured.out
 
-    def test_imports_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_imports_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.imports_cmd import run
         run(query, "app.py")
         captured = capsys.readouterr()
         assert "utils.load" in captured.out
 
-    def test_orphans_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_orphans_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.orphans import run
         run(query)
         captured = capsys.readouterr()
         assert "_unused" in captured.out
 
-    def test_focus_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_focus_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.focus import run
         run(query, "run")
         captured = capsys.readouterr()
         assert '"name": "run"' in captured.out
         assert '"callers"' in captured.out
 
-    def test_query_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_query_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.query_cmd import run
         run(query, "test_.*")
         captured = capsys.readouterr()
         assert "test_run" in captured.out
         assert "test_service" in captured.out
 
-    def test_context_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_context_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.context import run
         run(query, "run")
         captured = capsys.readouterr()
         assert "=== run (function) ===" in captured.out
         assert "Callees" in captured.out
 
-    def test_impact_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_impact_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.impact import run
         run(query, "run")
         captured = capsys.readouterr()
         assert "->" in captured.out
 
-    def test_path_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_path_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.path_cmd import run
         run(query, "run", "_helper")
         captured = capsys.readouterr()
         assert "->" in captured.out
 
-    def test_trace_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_trace_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.trace import run
         run(query, "connection refused")
         captured = capsys.readouterr()
         assert "connection refused" in captured.out
 
-    def test_source_command_not_found(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_source_command_not_found(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.source import run
         run(query, "nonexistent.py")
         captured = capsys.readouterr()
@@ -562,14 +590,18 @@ class TestGetComplexity:
         results = query.get_complexity("ghost")
         assert results == []
 
-    def test_complexity_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_complexity_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.complexity import run
         run(query, "run")
         captured = capsys.readouterr()
         assert "Complexity: 3" in captured.out
         assert "run" in captured.out
 
-    def test_complexity_command_ranked_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_complexity_command_ranked_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.complexity import run
         run(query)
         captured = capsys.readouterr()
@@ -594,7 +626,9 @@ class TestGetCoupling:
         assert len(results) > 0
         assert all("ca" in r and "ce" in r and "instability" in r for r in results)
 
-    def test_coupling_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_coupling_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.coupling import run
         run(query, "run")
         captured = capsys.readouterr()
@@ -609,7 +643,9 @@ class TestGetHotspots:
         assert len(results) > 0
         assert all("score" in r and "complexity" in r and "coupling" in r for r in results)
 
-    def test_hotspot_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_hotspot_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.hotspot import run
         run(query, top_n=5)
         captured = capsys.readouterr()
@@ -625,7 +661,9 @@ class TestGetDeps:
         assert results[0]["module"] == "flask"
         assert results[0]["version"] == "3.0"
 
-    def test_deps_command_output(self, query: GraphQuery, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_deps_command_output(
+        self, query: GraphQuery, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from pygraph.commands.deps import run
         run(query)
         captured = capsys.readouterr()

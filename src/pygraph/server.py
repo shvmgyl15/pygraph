@@ -371,7 +371,6 @@ def review(
 @server.tool()
 def add_opencode_plugin(root: str = ".") -> str:
     """Create .opencode.json with pygraph MCP config"""
-    q = create_query(root)
     root_path = Path(root).resolve()
     config_path = root_path / ".opencode.json"
 

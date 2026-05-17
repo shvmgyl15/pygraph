@@ -383,7 +383,15 @@ class TestComplexityExtraction:
         assert symbols[0].complexity == 2
 
     def test_except_adds_one_per_handler(self) -> None:
-        src = "def foo():\n    try:\n        pass\n    except ValueError:\n        pass\n    except TypeError:\n        pass\n"
+        src = (
+            "def foo():\n"
+            "    try:\n"
+            "        pass\n"
+            "    except ValueError:\n"
+            "        pass\n"
+            "    except TypeError:\n"
+            "        pass\n"
+        )
         symbols = extract_symbols(src, "test.py", "pkg")
         assert symbols[0].complexity == 3
 
