@@ -50,11 +50,11 @@
 - [x] Write analysis tests
 
 ## Phase 7: Graph Traversal
-- [ ] impact (BFS downstream blast radius)
-- [ ] path (BFS shortest path between symbols)
-- [ ] orphans (dead code detection via reachability from entry points)
-- [ ] trace / errorflow (reverse BFS from string literal)
-- [ ] Write traversal tests
+- [x] impact (BFS downstream blast radius with deque, max_depth, transitive)
+- [x] path (BFS shortest path with deque, file/line in steps)
+- [x] orphans (dead code detection via reachability from entry points)
+- [x] trace / errorflow (reverse BFS from string literal through callers)
+- [x] Write traversal tests (169 tests, up from 159)
 
 ## Phase 8: MCP Server
 - [ ] MCP stdio server wrapping all query tools

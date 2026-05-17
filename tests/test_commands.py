@@ -631,3 +631,78 @@ class TestGetDeps:
         captured = capsys.readouterr()
         assert "flask" in captured.out
         assert "3.0" in captured.out
+
+
+class TestGetImpactExtended:
+    def test_impact_transitive(self, query: GraphQuery) -> None:
+        edges = query.get_impact("run")
+        names = {e["callee"] for e in edges}
+        assert "_helper" in names
+
+    def test_impact_max_depth(self, query: GraphQuery) -> None:
+        edges = query.get_impact("run", max_depth=1)
+        names = {e["callee"] for e in edges}
+        assert "setup" in names
+        assert "load" in names
+        assert "start" in names
+        assert "_helper" not in names
+
+    def test_impact_no_callees(self, query: GraphQuery) -> None:
+        edges = query.get_impact("load")
+        assert edges == []
+
+
+class TestGetPathExtended:
+    def test_path_includes_file_line(self, query: GraphQuery) -> None:
+        path = query.get_path("run", "_helper")
+        assert path is not None
+        assert len(path) == 2
+        for step in path:
+            assert "file" in step
+            assert "line" in step
+
+    def test_path_no_path(self, query: GraphQuery) -> None:
+        path = query.get_path("parse", "_unused")
+        assert path is None
+
+
+class TestGetOrphansExtended:
+    def test_orphans_dead_chain(self, query: GraphQuery) -> None:
+        g = query.graph
+        g.symbols.append(make_symbol_node(
+            id="utils.py::_dead_helper", name="_dead_helper", kind="function",
+            file="utils.py", line=20, end_line=22, is_exported=False,
+        ))
+        g.calls.append(make_call_edge(
+            caller_symbol_id="utils.py::_unused", caller_name="_unused",
+            callee_raw="_dead_helper", file="utils.py", line=18,
+        ))
+        q2 = GraphQuery(g, root="/test")
+        names = {s.name for s in q2.get_orphans()}
+        assert "_unused" in names
+        assert "_dead_helper" in names
+
+    def test_orphans_empty_when_all_reachable(self, query: GraphQuery) -> None:
+        orphans = query.get_orphans()
+        assert len(orphans) >= 1
+        assert all(not s.is_exported for s in orphans)
+
+
+class TestGetErrorflowExtended:
+    def test_errorflow_reverse_trace(self, query: GraphQuery) -> None:
+        results = query.get_errorflow("connection refused")
+        assert len(results) >= 1
+        trace = results[0]["trace"]
+        assert len(trace) >= 1
+        callers = {t["from"] for t in trace}
+        assert "run" in callers
+        assert all("file" in t and "line" in t for t in trace)
+
+    def test_errorflow_no_match(self, query: GraphQuery) -> None:
+        results = query.get_errorflow("nonexistent")
+        assert results == []
+
+    def test_errorflow_substring_match(self, query: GraphQuery) -> None:
+        results = query.get_errorflow("refused")
+        assert len(results) >= 1
+        assert results[0]["error"].function_name == "start"

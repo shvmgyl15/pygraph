@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +42,7 @@ class GraphQuery:
         self._symbols_by_receiver: dict[str, list[SymbolNode]] = {}
         self._files_by_path: dict[str, FileNode] = {}
         self._callees_of: dict[str, list[CallEdge]] = {}
+        self._callers_by_name: dict[str, list[tuple[str, CallEdge]]] = {}
         self._imports_by_file: dict[str, list[ImportEdge]] = {}
         self._build_index()
 
@@ -58,6 +60,15 @@ class GraphQuery:
 
         for call in self.graph.calls:
             self._callees_of.setdefault(call.caller_symbol_id, []).append(call)
+            callee = _resolve_callee(
+                call.callee_raw,
+                self._symbols_by_name,
+                self._symbols_by_receiver,
+            )
+            if callee:
+                self._callers_by_name.setdefault(callee.name, []).append(
+                    (call.caller_symbol_id, call)
+                )
 
         for imp in self.graph.imports:
             self._imports_by_file.setdefault(imp.from_file, []).append(imp)
@@ -203,55 +214,85 @@ class GraphQuery:
                 })
         return tests
 
-    def get_orphans(self) -> list[SymbolNode]:
-        callee_names: set[str] = set()
-        for call in self.graph.calls:
-            parts = call.callee_raw.split(".")
-            callee_names.add(parts[-1])
-
-        tested_names: set[str] = set()
-        for te in self.graph.test_edges:
-            tested_names.add(te.target)
-
-        orphans: list[SymbolNode] = []
+    def _get_entry_point_names(self) -> set[str]:
+        entry_points: set[str] = set()
         for sym in self.graph.symbols:
             if sym.is_exported:
-                continue
-            if sym.name in callee_names:
-                continue
-            if sym.name in tested_names:
-                continue
-            orphans.append(sym)
+                entry_points.add(sym.name)
+        for route in self.graph.routes:
+            parts = route.handler.rsplit(".", 1)
+            entry_points.add(parts[-1])
+        for te in self.graph.test_edges:
+            entry_points.add(te.test_func)
+        return entry_points
 
-        return orphans
+    def get_orphans(self) -> list[SymbolNode]:
+        entry_points = self._get_entry_point_names()
 
-    def get_impact(self, symbol_name: str) -> list[dict[str, Any]]:
-        visited: set[str] = set()
-        queue: list[str] = [symbol_name]
-        result: list[dict[str, Any]] = []
+        visited_ids: set[str] = set()
+        queue: deque[str] = deque()
+
+        for ep_name in entry_points:
+            for sym in self.get_all_symbols(ep_name):
+                if sym.id not in visited_ids:
+                    visited_ids.add(sym.id)
+                    queue.append(sym.name)
 
         while queue:
-            current = queue.pop(0)
-            if current in visited:
-                continue
-            visited.add(current)
-
+            current = queue.popleft()
             for sym in self.get_all_symbols(current):
-                edges = self._callees_of.get(sym.id, [])
-                for edge in edges:
+                for edge in self._callees_of.get(sym.id, []):
                     callee = _resolve_callee(
                         edge.callee_raw,
                         self._symbols_by_name,
                         self._symbols_by_receiver,
                     )
-                    if callee and callee.name not in visited:
-                        result.append({
-                            "caller": current,
-                            "callee": callee.name,
-                            "file": edge.file,
-                            "line": edge.line,
-                        })
+                    if callee and callee.id not in visited_ids:
+                        visited_ids.add(callee.id)
                         queue.append(callee.name)
+
+        orphans: list[SymbolNode] = []
+        for sym in self.graph.symbols:
+            if not sym.is_exported and sym.id not in visited_ids:
+                orphans.append(sym)
+
+        return orphans
+
+    def get_impact(
+        self, symbol_name: str, max_depth: int | None = None
+    ) -> list[dict[str, Any]]:
+        visited_ids: set[str] = set()
+        queue: deque[tuple[str, int]] = deque()
+        result: list[dict[str, Any]] = []
+
+        queue.append((symbol_name, 0))
+
+        while queue:
+            current, depth = queue.popleft()
+            if max_depth is not None and depth >= max_depth:
+                continue
+
+            for sym in self.get_all_symbols(current):
+                if sym.id in visited_ids:
+                    continue
+                visited_ids.add(sym.id)
+
+                for edge in self._callees_of.get(sym.id, []):
+                    callee = _resolve_callee(
+                        edge.callee_raw,
+                        self._symbols_by_name,
+                        self._symbols_by_receiver,
+                    )
+                    if callee is None:
+                        continue
+                    result.append({
+                        "caller": current,
+                        "callee": callee.name,
+                        "file": edge.file,
+                        "line": edge.line,
+                    })
+                    if callee.id not in visited_ids:
+                        queue.append((callee.name, depth + 1))
 
         return result
 
@@ -261,19 +302,20 @@ class GraphQuery:
         if from_name == to_name:
             return []
 
-        visited: set[str] = set()
-        queue: list[list[str]] = [[from_name]]
+        visited_ids: set[str] = set()
+        queue: deque[list[str]] = deque([[from_name]])
+        edge_cache: dict[tuple[str, str], dict[str, Any]] = {}
 
         while queue:
-            path = queue.pop(0)
+            path = queue.popleft()
             last = path[-1]
-            if last in visited:
-                continue
-            visited.add(last)
 
             for sym in self.get_all_symbols(last):
-                edges = self._callees_of.get(sym.id, [])
-                for edge in edges:
+                if sym.id in visited_ids:
+                    continue
+                visited_ids.add(sym.id)
+
+                for edge in self._callees_of.get(sym.id, []):
                     callee = _resolve_callee(
                         edge.callee_raw,
                         self._symbols_by_name,
@@ -281,12 +323,20 @@ class GraphQuery:
                     )
                     if callee is None:
                         continue
+                    edge_cache[(last, callee.name)] = {
+                        "from": last,
+                        "to": callee.name,
+                        "file": edge.file,
+                        "line": edge.line,
+                    }
                     if callee.name == to_name:
-                        return [
-                            {"from": path[i], "to": path[i + 1]}
-                            for i in range(len(path) - 1)
-                        ] + [{"from": last, "to": to_name}]
-                    if callee.name not in visited:
+                        result: list[dict[str, Any]] = []
+                        for i in range(len(path) - 1):
+                            key = (path[i], path[i + 1])
+                            result.append(edge_cache.get(key, {"from": path[i], "to": path[i + 1]}))
+                        result.append(edge_cache[(last, to_name)])
+                        return result
+                    if callee.name not in visited_ids and callee.id not in visited_ids:
                         queue.append(path + [callee.name])
 
         return None
@@ -426,26 +476,22 @@ class GraphQuery:
             visited_funcs.add(err.function_name)
 
             trace: list[dict[str, Any]] = []
-            queue: list[str] = [err.function_name]
+            queue: deque[tuple[str, int]] = deque([(err.function_name, 0)])
+
             while queue:
-                fn_name = queue.pop(0)
-                for call in self.graph.calls:
-                    caller = self._symbols_by_id.get(call.caller_symbol_id)
-                    if caller and caller.name == fn_name:
-                        callee = _resolve_callee(
-                            call.callee_raw,
-                            self._symbols_by_name,
-                            self._symbols_by_receiver,
-                        )
-                        if callee:
-                            trace.append({
-                                "from": caller.name,
-                                "to": callee.name,
-                                "file": call.file,
-                                "line": call.line,
-                            })
-                            if callee.name not in visited_funcs:
-                                queue.append(callee.name)
+                fn_name, _depth = queue.popleft()
+                callers = self._callers_by_name.get(fn_name, [])
+                for caller_id, edge in callers:
+                    caller = self._symbols_by_id.get(caller_id)
+                    if caller and caller.name not in visited_funcs:
+                        visited_funcs.add(caller.name)
+                        trace.append({
+                            "from": caller.name,
+                            "to": fn_name,
+                            "file": edge.file,
+                            "line": edge.line,
+                        })
+                        queue.append((caller.name, _depth + 1))
 
             result.append({
                 "error": err,
