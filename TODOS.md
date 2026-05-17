@@ -26,13 +26,14 @@
 - [x] Write parser/scanner unit tests (25 tests for scanner + extractors)
 
 ## Phase 4: Query Commands
-- [ ] callers / callees
-- [ ] node / source / query
-- [ ] context (bundle — node + source + callers + callees + tests)
-- [ ] imports / public / focus
-- [ ] impact / path / orphans / trace (CLI commands)
-- [ ] query regex support (fallback to substring)
-- [ ] Write query command tests
+- [x] GraphQuery engine (query.py) — symbol lookup, callers/callees, imports, regex, context, impact, path, orphans, trace/errorflow
+- [x] callers / callees CLI commands
+- [x] node / source / query CLI commands
+- [x] context (bundle — node + source + callers + callees + tests)
+- [x] imports / public / focus CLI commands
+- [x] impact / path / orphans / trace CLI commands (basic BFS, refined in Phase 7)
+- [x] query regex support (fallback to substring)
+- [x] Write query command tests (60 tests)
 
 ## Phase 5: Flask-Specific Extractors
 - [ ] Route detection (`@app.route`, method, URL params)
