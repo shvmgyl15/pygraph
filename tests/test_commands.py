@@ -394,6 +394,12 @@ class TestGetImpact:
         edges = query.get_impact("ghost")
         assert edges == []
 
+    def test_impact_of_class(self, query: GraphQuery) -> None:
+        edges = query.get_impact("Service")
+        assert len(edges) >= 1
+        names = {e["callee"] for e in edges}
+        assert "_helper" in names
+
 
 class TestGetPath:
     def test_path_between_symbols(self, query: GraphQuery) -> None:
@@ -409,6 +415,11 @@ class TestGetPath:
         path = query.get_path("run", "run")
         assert path is not None
         assert path == []
+
+    def test_path_from_class(self, query: GraphQuery) -> None:
+        path = query.get_path("Service", "_helper")
+        assert path is not None
+        assert len(path) >= 1
 
 
 class TestGetTrace:

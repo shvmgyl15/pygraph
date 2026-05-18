@@ -368,6 +368,28 @@ class GraphQuery:
                     if callee.id not in visited_ids:
                         queue.append((callee.name, depth + 1))
 
+                if sym.kind == "class":
+                    for method_sym in self._symbols_by_receiver.get(sym.name, []):
+                        if method_sym.id in visited_ids:
+                            continue
+                        visited_ids.add(method_sym.id)
+                        for edge in self._callees_of.get(method_sym.id, []):
+                            callee = _resolve_callee(
+                                edge.callee_raw,
+                                self._symbols_by_name,
+                                self._symbols_by_receiver,
+                            )
+                            if callee is None:
+                                continue
+                            result.append({
+                                "caller": current,
+                                "callee": callee.name,
+                                "file": edge.file,
+                                "line": edge.line,
+                            })
+                            if callee.id not in visited_ids:
+                                queue.append((callee.name, depth + 1))
+
         return result
 
     def get_path(
@@ -407,11 +429,42 @@ class GraphQuery:
                         result: list[dict[str, Any]] = []
                         for i in range(len(path) - 1):
                             key = (path[i], path[i + 1])
-                            result.append(edge_cache.get(key, {"from": path[i], "to": path[i + 1]}))
+                            step = edge_cache.get(key, {"from": path[i], "to": path[i + 1]})
+                            result.append(step)
                         result.append(edge_cache[(last, to_name)])
                         return result
                     if callee.id not in visited_ids:
                         queue.append(path + [callee.name])
+
+                if sym.kind == "class":
+                    for method_sym in self._symbols_by_receiver.get(sym.name, []):
+                        if method_sym.id in visited_ids:
+                            continue
+                        visited_ids.add(method_sym.id)
+                        for edge in self._callees_of.get(method_sym.id, []):
+                            callee = _resolve_callee(
+                                edge.callee_raw,
+                                self._symbols_by_name,
+                                self._symbols_by_receiver,
+                            )
+                            if callee is None:
+                                continue
+                            edge_cache[(last, callee.name)] = {
+                                "from": last,
+                                "to": callee.name,
+                                "file": edge.file,
+                                "line": edge.line,
+                            }
+                            if callee.name == to_name:
+                                result = []
+                                for i in range(len(path) - 1):
+                                    key = (path[i], path[i + 1])
+                                    step = edge_cache.get(key, {"from": path[i], "to": path[i + 1]})
+                                    result.append(step)
+                                result.append(edge_cache[(last, to_name)])
+                                return result
+                            if callee.id not in visited_ids:
+                                queue.append(path + [callee.name])
 
         return None
 
