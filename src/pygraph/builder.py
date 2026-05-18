@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import importlib.util
 import subprocess
+import sys
+import traceback
 from pathlib import Path
 from typing import Any
 
+from pygraph.config import get_plugins
 from pygraph.extractors.calls import extract_calls
 from pygraph.extractors.env import extract_env_reads
 from pygraph.extractors.errors import extract_errors
@@ -360,6 +364,41 @@ def _merge_incremental(
     return graph
 
 
+def _run_plugins(graph: Graph, root: str) -> None:
+    plugins = get_plugins(root)
+    if not plugins:
+        return
+    root_path = Path(root).resolve()
+    for plugin_rel in plugins:
+        plugin_path = (root_path / plugin_rel).resolve()
+        if not plugin_path.exists():
+            print(f"[pygraph] plugin not found: {plugin_path}", file=sys.stderr)
+            continue
+        try:
+            spec = importlib.util.spec_from_file_location(
+                f"_pygraph_plugin_{plugin_path.stem}", plugin_path
+            )
+            if spec is None or spec.loader is None:
+                print(f"[pygraph] failed to load plugin: {plugin_path}", file=sys.stderr)
+                continue
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[mod.__name__] = mod
+            spec.loader.exec_module(mod)
+            if not hasattr(mod, "run"):
+                print(
+                    f"[pygraph] plugin {plugin_path} has no run(graph) function",
+                    file=sys.stderr,
+                )
+                continue
+            mod.run(graph)
+        except Exception:
+            print(
+                f"[pygraph] plugin {plugin_path} raised an error:",
+                file=sys.stderr,
+            )
+            traceback.print_exc(file=sys.stderr)
+
+
 def build_graph(root: str, incremental: bool = True) -> Graph:
     root_path = Path(root).resolve()
     scan_result = scan_files(root)
@@ -371,11 +410,15 @@ def build_graph(root: str, incremental: bool = True) -> Graph:
         if graph_path.exists() and cache_path.exists():
             old_graph = read_graph(graph_path)
             old_cache = BuildCache.load(cache_path)
-            return _merge_incremental(
+            graph = _merge_incremental(
                 root_path, scan_result, old_graph, old_cache, cache_path
             )
+            _run_plugins(graph, root)
+            return graph
 
-    return _build_full(root, scan_result)
+    graph = _build_full(root, scan_result)
+    _run_plugins(graph, root)
+    return graph
 
 
 def build_graph_from_ref(ref: str, root: str) -> Graph:

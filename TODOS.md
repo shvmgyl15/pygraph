@@ -90,3 +90,11 @@
 - [x] P4: Auto-build graph from git ref with caching (`._load_git_graph` fallback)
 - [x] P4: Update `.gitignore` for `ref-*.json` cache files
 - [x] Run `pytest && mypy src && ruff check` — fix all failures
+
+## Phase 11: Post-Build Plugin System
+- [x] Add `src/pygraph/config.py` — load `[tool.pygraph]` from `pyproject.toml`
+- [x] Add `_run_plugins()` in `builder.py` — import & run each plugin script's `run(graph)`
+- [x] Wire into `build_graph()` — plugins run after graph assembly, before return
+- [x] Errors, missing scripts, missing `run` function all warn and continue
+- [x] Multiple plugins supported in order; failure of one doesn't block the next
+- [x] Tests: plugin runs + adds edges, missing plugin, no run function, exception, no plugins, multiple, partial failure
