@@ -98,3 +98,12 @@
 - [x] Errors, missing scripts, missing `run` function all warn and continue
 - [x] Multiple plugins supported in order; failure of one doesn't block the next
 - [x] Tests: plugin runs + adds edges, missing plugin, no run function, exception, no plugins, multiple, partial failure
+
+## Phase 12: PyPI Publishing Prep
+- [x] Add author, license, readme, classifiers, urls to pyproject.toml
+- [x] Add `__version__` to `src/pygraph/__init__.py`
+- [x] Update package name to `pygraph-mcp` (pygraph taken on PyPI)
+- [x] Update README.md install instructions for PyPI
+- [x] Create `.github/workflows/publish.yml` for auto-publishing on tags
+- [x] Fix unwanted imports in tests/test_plugins.py
+- [x] Verify build, tests, mypy, ruff all pass

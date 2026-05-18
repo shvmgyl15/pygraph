@@ -11,10 +11,10 @@ Designed as a companion tool for AI agents (opencode, Cline, etc.) via MCP, or f
 ## Quick Start
 
 ```bash
-pip install git+https://github.com/shvmgyl15/pygraph.git
+pip install pygraph-mcp
 
 # Or with uv:
-uv pip install git+https://github.com/shvmgyl15/pygraph.git
+uv pip install pygraph-mcp
 ```
 
 Index your project and start querying:

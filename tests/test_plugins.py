@@ -2,10 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from pygraph.builder import _run_plugins
-from pygraph.graph.types import Graph, make_call_edge, make_graph
+from pygraph.graph.types import Graph, make_graph
 
 
 def _make_test_graph() -> Graph:
