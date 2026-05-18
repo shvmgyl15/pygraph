@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -40,9 +41,7 @@ def _get_file_mtime_size(path: str) -> tuple[float, int]:
     return stat.st_mtime_ns, stat.st_size
 
 
-def _parse_file(
-    sf: ScannedFile, pkg_name: str
-) -> tuple[
+_ParseResult = tuple[
     list[SymbolNode],
     list[CallEdge],
     list[ImportEdge],
@@ -58,23 +57,27 @@ def _parse_file(
     list[TestEdge],
     list[ImplementsEdge],
     FileNode,
-]:
-    source = Path(sf.path).read_text()
-    symbols = extract_symbols(source, sf.relative_path, pkg_name)
-    calls = extract_calls(source, sf.relative_path)
-    imports = extract_imports(source, sf.relative_path, pkg_name)
-    flask = extract_flask(source, sf.relative_path)
-    env_reads = extract_env_reads(source, sf.relative_path)
-    errors = extract_errors(source, sf.relative_path)
-    test_edges = extract_test_edges(source, sf.relative_path)
-    implements = extract_implements(source, sf.relative_path)
+]
+
+
+def _parse_source(
+    source: str, relative_path: str, pkg_name: str
+) -> _ParseResult:
+    symbols = extract_symbols(source, relative_path, pkg_name)
+    calls = extract_calls(source, relative_path)
+    imports = extract_imports(source, relative_path, pkg_name)
+    flask = extract_flask(source, relative_path)
+    env_reads = extract_env_reads(source, relative_path)
+    errors = extract_errors(source, relative_path)
+    test_edges = extract_test_edges(source, relative_path)
+    implements = extract_implements(source, relative_path)
 
     file_node = FileNode(
-        id=sf.relative_path,
-        path=sf.relative_path,
+        id=relative_path,
+        path=relative_path,
         package_name=pkg_name,
         lines=len(source.split("\n")),
-        generated=sf.is_generated,
+        generated=False,
     )
 
     return (
@@ -94,6 +97,15 @@ def _parse_file(
         implements,
         file_node,
     )
+
+
+def _parse_file(
+    sf: ScannedFile, pkg_name: str
+) -> _ParseResult:
+    source = Path(sf.path).read_text()
+    result = _parse_source(source, sf.relative_path, pkg_name)
+    result[-1].generated = sf.is_generated
+    return result
 
 
 def _build_full(root: str, scan_result: ScanResult) -> Graph:
@@ -364,6 +376,122 @@ def build_graph(root: str, incremental: bool = True) -> Graph:
             )
 
     return _build_full(root, scan_result)
+
+
+def build_graph_from_ref(ref: str, root: str) -> Graph:
+    root_path = Path(root).resolve()
+    if not root_path.exists():
+        raise ValueError(f"Root path '{root}' does not exist")
+    pkg_name = root_path.name
+
+    try:
+        result = subprocess.run(
+            ["git", "ls-tree", "-r", ref, "--name-only"],
+            capture_output=True, text=True, timeout=30,
+            cwd=str(root_path),
+        )
+        if result.returncode != 0:
+            raise ValueError(f"Could not list files at ref '{ref}'")
+        py_files = [f for f in result.stdout.splitlines() if f.endswith(".py")]
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+        raise ValueError(f"Could not list files at ref '{ref}'") from None
+
+    all_symbols: list[SymbolNode] = []
+    all_calls: list[CallEdge] = []
+    all_imports: list[ImportEdge] = []
+    all_routes: list[HTTPRoute] = []
+    all_error_handlers: list[HTTPRoute] = []
+    all_cli_commands: list[HTTPRoute] = []
+    all_blueprints: list[BlueprintDef] = []
+    all_blueprint_registrations: list[BlueprintRegistration] = []
+    all_template_refs: list[TemplateRef] = []
+    all_extensions: list[ExtensionUsage] = []
+    all_env_reads: list[EnvRead] = []
+    all_errors: list[ErrorEdge] = []
+    all_test_edges: list[TestEdge] = []
+    all_implements: list[ImplementsEdge] = []
+    file_nodes: list[FileNode] = []
+
+    for rel_path in py_files:
+        try:
+            content = subprocess.run(
+                ["git", "show", f"{ref}:{rel_path}"],
+                capture_output=True, text=True, timeout=10,
+                cwd=str(root_path),
+            )
+            if content.returncode != 0 or not content.stdout:
+                continue
+            source = content.stdout
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            continue
+
+        parsed = _parse_source(source, rel_path, pkg_name)
+
+        (
+            symbols, calls, imports,
+            routes, error_handlers, cli_commands,
+            blueprints, blueprint_registrations, template_refs, extensions,
+            env_reads, errors, test_edges, implements, file_node,
+        ) = parsed
+
+        all_symbols.extend(symbols)
+        all_calls.extend(calls)
+        all_imports.extend(imports)
+        all_routes.extend(routes)
+        all_error_handlers.extend(error_handlers)
+        all_cli_commands.extend(cli_commands)
+        all_blueprints.extend(blueprints)
+        all_blueprint_registrations.extend(blueprint_registrations)
+        all_template_refs.extend(template_refs)
+        all_extensions.extend(extensions)
+        all_env_reads.extend(env_reads)
+        all_errors.extend(errors)
+        all_test_edges.extend(test_edges)
+        all_implements.extend(implements)
+        file_nodes.append(file_node)
+
+    all_routes.extend(all_error_handlers)
+    all_routes.extend(all_cli_commands)
+
+    package = make_package_node(
+        name=pkg_name,
+        import_path_best_effort=pkg_name,
+        dir=str(root_path),
+        files=py_files,
+    )
+
+    graph = make_graph(project_root=str(root_path))
+    graph.packages = [package]
+    graph.files = file_nodes
+    graph.symbols = all_symbols
+    graph.calls = all_calls
+    graph.imports = all_imports
+    graph.routes = all_routes
+    graph.blueprints = all_blueprints
+    graph.blueprint_registrations = all_blueprint_registrations
+    graph.template_refs = all_template_refs
+    graph.extensions = all_extensions
+    graph.env_reads = all_env_reads
+    graph.errors = all_errors
+    graph.test_edges = all_test_edges
+    graph.implements = all_implements
+
+    return graph
+
+
+def resolve_git_ref(ref: str, root: str = "") -> str | None:
+    try:
+        cwd = root if root and Path(root).exists() else None
+        result = subprocess.run(
+            ["git", "rev-parse", ref],
+            capture_output=True, text=True, timeout=10,
+            cwd=cwd,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return None
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+        return None
 
 
 def build_and_write(root: str, incremental: bool = True) -> Path:

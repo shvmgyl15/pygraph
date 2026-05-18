@@ -72,16 +72,21 @@
 
 ## Phase 10: Query Engine Fixes + Missing Extractors
 - [x] Rewrite `_resolve_callee` to parse `ClassName(args).method()` patterns
-- [x] Fix `get_callers` to use `_resolve_callee` (consistent with all other methods)
+- [x] Fix `get_callers` to use `_resolve_callee`
 - [x] Fix `get_callees` to aggregate calls from class methods
 - [x] Fix coupling/hotspot to use qualified names (`ClassName.method`)
-- [x] Fix `_callers_by_name` index to also key by receiver (class name)
+- [x] Fix `_callers_by_name` index to also key by receiver
 - [x] Fix `get_path` visited tracking redundant check
 - [x] Build env_reads extractor (`os.environ.get`, `os.getenv`, `environ[]`)
-- [x] Build errors extractor (`raise` / `raise ... from ...` detection)
-- [x] Build test_edges extractor (scan test functions, link to called project symbols)
-- [x] Build implements extractor (ABC/Protocol subclassing detection)
+- [x] Build errors extractor (`raise` / `raise ... from ...`)
+- [x] Build test_edges extractor (test functions → called project symbols)
+- [x] Build implements extractor (ABC/Protocol subclassing)
 - [x] Better error messages for `changes`/`plan`/`review` snapshot misses
 - [x] `orphans --all` flag for public uncalled symbols
 - [x] `context` structured summary (source behind `--source` flag)
+- [x] P0: Fix `caller_symbol_id` mismatch — qualify class.method name in calls.py
+- [x] P1: Add `app.add_url_rule()` route extractor in flask.py
+- [x] P2: Add Poetry dependency parsing in imports.py
+- [x] P4: Auto-build graph from git ref with caching (`._load_git_graph` fallback)
+- [x] P4: Update `.gitignore` for `ref-*.json` cache files
 - [x] Run `pytest && mypy src && ruff check` — fix all failures

@@ -4,6 +4,7 @@ __pycache__/
 dist/
 build/
 .pygraph/
+.pygraph/ref-*.json
 .graph/
 *.egg
 venv/

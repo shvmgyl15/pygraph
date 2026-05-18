@@ -7,8 +7,9 @@ from collections import deque
 from pathlib import Path
 from typing import Any
 
+from pygraph.builder import build_graph_from_ref, resolve_git_ref
 from pygraph.graph.boundaries import BoundaryConfig, load_boundary_config
-from pygraph.graph.serialize import deserialize
+from pygraph.graph.serialize import deserialize, read_graph, write_graph
 from pygraph.graph.types import CallEdge, FileNode, Graph, ImportEdge, SymbolNode
 
 
@@ -646,14 +647,35 @@ class GraphQuery:
 
     def _load_git_graph(self, since: str) -> Graph | None:
         try:
+            cwd = self.root if Path(self.root).exists() else None
             result = subprocess.run(
                 ["git", "show", f"{since}:.pygraph/graph.json"],
                 capture_output=True, text=True, timeout=10,
+                cwd=cwd,
             )
-            if result.returncode != 0:
-                return None
-            return deserialize(result.stdout)
+            if result.returncode == 0:
+                return deserialize(result.stdout)
         except (subprocess.TimeoutExpired, subprocess.SubprocessError, ValueError):
+            pass
+
+        sha = resolve_git_ref(since, root=self.root)
+        if sha is None:
+            return None
+
+        cache_path = Path(self.root) / ".pygraph" / f"ref-{sha}.json"
+        if cache_path.exists():
+            try:
+                return read_graph(cache_path)
+            except (ValueError, OSError):
+                pass
+
+        print(f"no graph at ref {since}, building from source...")
+        try:
+            graph = build_graph_from_ref(since, self.root)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            write_graph(graph, cache_path)
+            return graph
+        except (ValueError, PermissionError, OSError, FileNotFoundError):
             return None
 
     def _symbol_key(self, sym: SymbolNode) -> tuple[str, str | None]:

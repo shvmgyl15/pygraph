@@ -125,4 +125,37 @@ def extract_dependencies(root: str) -> list[Dependency]:
         except (OSError, ImportError):
             pass
 
+    if pyproject_toml.exists() and not deps:
+        try:
+            import tomllib
+
+            data = tomllib.loads(pyproject_toml.read_text())
+
+            poetry_deps: dict[str, object] | None = None
+            tool = data.get("tool", {})
+            if isinstance(tool, dict):
+                poetry = tool.get("poetry", {})
+                if isinstance(poetry, dict):
+                    poetry_deps = poetry.get("dependencies")
+
+            if poetry_deps:
+                for pkg, spec in poetry_deps.items():
+                    if pkg == "python":
+                        continue
+                    if isinstance(spec, str):
+                        if spec.startswith(("^", "~")):
+                            deps.append(Dependency(module=pkg, version=f">={spec[1:]}"))
+                        elif "||" in spec:
+                            parts = spec.split("||")
+                            deps.append(Dependency(module=pkg, version=parts[0].strip()))
+                        else:
+                            deps.append(Dependency(module=pkg, version=spec))
+                    elif isinstance(spec, dict):
+                        version = spec.get("version", "*")
+                        deps.append(Dependency(module=pkg, version=version))
+                    else:
+                        deps.append(Dependency(module=pkg, version="*"))
+        except (OSError, ImportError):
+            pass
+
     return deps

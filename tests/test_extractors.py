@@ -155,7 +155,7 @@ class Service:
 """
         calls = extract_calls(src, "test.py")
         assert len(calls) == 2
-        assert all(c.caller_name == "run" for c in calls)
+        assert all(c.caller_name == "Service.run" for c in calls)
         assert calls[0].callee_raw == "self.prepare"
 
     def test_async_function_calls(self) -> None:

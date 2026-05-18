@@ -332,6 +332,49 @@ def _extract_cli_commands(tree: ast.Module, file_path: str) -> list[HTTPRoute]:
     return commands
 
 
+def _extract_add_url_rule_calls(tree: ast.Module, file_path: str) -> list[HTTPRoute]:
+    routes: list[HTTPRoute] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute) or func.attr != "add_url_rule":
+            continue
+
+        if not node.args:
+            continue
+        path = _string_from_node(node.args[0])
+        if path is None:
+            path = ast.unparse(node.args[0])
+
+        methods: list[str] = ["GET"]
+        view_func: str | None = None
+
+        for kw in node.keywords:
+            if kw.arg == "methods":
+                raw = _string_list_from_node(kw.value)
+                if raw:
+                    methods = raw
+            elif kw.arg == "view_func":
+                view_func = ast.unparse(kw.value)
+
+        if view_func is None and len(node.args) > 1 and isinstance(node.args[1], ast.Name):
+            view_func = node.args[1].id
+
+        if view_func:
+            for method in methods:
+                routes.append(
+                    HTTPRoute(
+                        method=method.upper(),
+                        path=path,
+                        handler=f"{file_path}::{view_func}",
+                        file=file_path,
+                        line=node.lineno,
+                    )
+                )
+    return routes
+
+
 def extract_flask(source: str, file_path: str) -> dict[str, Any]:
     try:
         tree = ast.parse(source)
@@ -347,7 +390,7 @@ def extract_flask(source: str, file_path: str) -> dict[str, Any]:
         }
 
     return {
-        "routes": _extract_routes(tree, file_path),
+        "routes": _extract_routes(tree, file_path) + _extract_add_url_rule_calls(tree, file_path),
         "blueprints": _detect_blueprint_assignments(tree),
         "blueprint_registrations": _extract_blueprint_registrations(tree, file_path),
         "template_refs": _extract_template_refs(tree, file_path),
