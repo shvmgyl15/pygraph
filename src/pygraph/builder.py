@@ -4,22 +4,30 @@ from pathlib import Path
 from typing import Any
 
 from pygraph.extractors.calls import extract_calls
+from pygraph.extractors.env import extract_env_reads
+from pygraph.extractors.errors import extract_errors
 from pygraph.extractors.flask import extract_flask
+from pygraph.extractors.implements import extract_implements
 from pygraph.extractors.imports import extract_dependencies, extract_imports
 from pygraph.extractors.symbols import extract_symbols
+from pygraph.extractors.tests import extract_test_edges
 from pygraph.graph.cache import BuildCache
 from pygraph.graph.serialize import read_graph, write_graph
 from pygraph.graph.types import (
     BlueprintDef,
     BlueprintRegistration,
     CallEdge,
+    EnvRead,
+    ErrorEdge,
     ExtensionUsage,
     FileNode,
     Graph,
     HTTPRoute,
+    ImplementsEdge,
     ImportEdge,
     SymbolNode,
     TemplateRef,
+    TestEdge,
     make_graph,
     make_package_node,
 )
@@ -45,6 +53,10 @@ def _parse_file(
     list[BlueprintRegistration],
     list[TemplateRef],
     list[ExtensionUsage],
+    list[EnvRead],
+    list[ErrorEdge],
+    list[TestEdge],
+    list[ImplementsEdge],
     FileNode,
 ]:
     source = Path(sf.path).read_text()
@@ -52,6 +64,10 @@ def _parse_file(
     calls = extract_calls(source, sf.relative_path)
     imports = extract_imports(source, sf.relative_path, pkg_name)
     flask = extract_flask(source, sf.relative_path)
+    env_reads = extract_env_reads(source, sf.relative_path)
+    errors = extract_errors(source, sf.relative_path)
+    test_edges = extract_test_edges(source, sf.relative_path)
+    implements = extract_implements(source, sf.relative_path)
 
     file_node = FileNode(
         id=sf.relative_path,
@@ -72,6 +88,10 @@ def _parse_file(
         flask["blueprint_registrations"],
         flask["template_refs"],
         flask["extensions"],
+        env_reads,
+        errors,
+        test_edges,
+        implements,
         file_node,
     )
 
@@ -91,6 +111,10 @@ def _build_full(root: str, scan_result: ScanResult) -> Graph:
     all_blueprint_registrations: list[BlueprintRegistration] = []
     all_template_refs: list[TemplateRef] = []
     all_extensions: list[ExtensionUsage] = []
+    all_env_reads: list[EnvRead] = []
+    all_errors: list[ErrorEdge] = []
+    all_test_edges: list[TestEdge] = []
+    all_implements: list[ImplementsEdge] = []
     file_nodes: list[FileNode] = []
 
     for sf in py_files:
@@ -110,6 +134,10 @@ def _build_full(root: str, scan_result: ScanResult) -> Graph:
             blueprint_registrations,
             template_refs,
             extensions,
+            env_reads,
+            errors,
+            test_edges,
+            implements,
             file_node,
         ) = result
 
@@ -123,6 +151,10 @@ def _build_full(root: str, scan_result: ScanResult) -> Graph:
         all_blueprint_registrations.extend(blueprint_registrations)
         all_template_refs.extend(template_refs)
         all_extensions.extend(extensions)
+        all_env_reads.extend(env_reads)
+        all_errors.extend(errors)
+        all_test_edges.extend(test_edges)
+        all_implements.extend(implements)
         file_nodes.append(file_node)
 
     all_routes.extend(all_error_handlers)
@@ -149,6 +181,10 @@ def _build_full(root: str, scan_result: ScanResult) -> Graph:
     graph.blueprint_registrations = all_blueprint_registrations
     graph.template_refs = all_template_refs
     graph.extensions = all_extensions
+    graph.env_reads = all_env_reads
+    graph.errors = all_errors
+    graph.test_edges = all_test_edges
+    graph.implements = all_implements
 
     return graph
 
@@ -199,6 +235,10 @@ def _merge_incremental(
     )
     old_template_refs_by_file = _index_by_file(old_graph.template_refs, "file")
     old_extensions_by_file = _index_by_file(old_graph.extensions, "file")
+    old_env_reads_by_file = _index_by_file(old_graph.env_reads, "file")
+    old_errors_by_file = _index_by_file(old_graph.errors, "file")
+    old_test_edges_by_file = _index_by_file(old_graph.test_edges, "file")
+    old_implements_by_file = _index_by_file(old_graph.implements, "file")
 
     all_symbols: list[SymbolNode] = []
     all_calls: list[CallEdge] = []
@@ -208,6 +248,10 @@ def _merge_incremental(
     all_blueprint_registrations: list[BlueprintRegistration] = []
     all_template_refs: list[TemplateRef] = []
     all_extensions: list[ExtensionUsage] = []
+    all_env_reads: list[EnvRead] = []
+    all_errors: list[ErrorEdge] = []
+    all_test_edges: list[TestEdge] = []
+    all_implements: list[ImplementsEdge] = []
     file_nodes: list[FileNode] = []
 
     for sf in py_files:
@@ -224,6 +268,10 @@ def _merge_incremental(
             )
             all_template_refs.extend(old_template_refs_by_file.get(rel, []))
             all_extensions.extend(old_extensions_by_file.get(rel, []))
+            all_env_reads.extend(old_env_reads_by_file.get(rel, []))
+            all_errors.extend(old_errors_by_file.get(rel, []))
+            all_test_edges.extend(old_test_edges_by_file.get(rel, []))
+            all_implements.extend(old_implements_by_file.get(rel, []))
             old_fn = next(
                 (f for f in old_graph.files if f.path == rel), None
             )
@@ -247,6 +295,10 @@ def _merge_incremental(
             blueprint_registrations,
             template_refs,
             extensions,
+            env_reads,
+            errors,
+            test_edges,
+            implements,
             file_node,
         ) = result
 
@@ -260,6 +312,10 @@ def _merge_incremental(
         all_blueprint_registrations.extend(blueprint_registrations)
         all_template_refs.extend(template_refs)
         all_extensions.extend(extensions)
+        all_env_reads.extend(env_reads)
+        all_errors.extend(errors)
+        all_test_edges.extend(test_edges)
+        all_implements.extend(implements)
         file_nodes.append(file_node)
 
     package = make_package_node(
@@ -283,6 +339,10 @@ def _merge_incremental(
     graph.blueprint_registrations = all_blueprint_registrations
     graph.template_refs = all_template_refs
     graph.extensions = all_extensions
+    graph.env_reads = all_env_reads
+    graph.errors = all_errors
+    graph.test_edges = all_test_edges
+    graph.implements = all_implements
 
     cache.save(cache_path)
     return graph

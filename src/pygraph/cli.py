@@ -85,12 +85,13 @@ def query(
 @app.command()
 def context(
     name: str,
+    source: bool = typer.Option(False, "--source", help="Include full source code"),
     root: str = typer.Option(".", "--root", help="Project root directory"),
 ) -> None:
     """Show symbol with callers, callees, tests, and source"""
     query = _load_query(root)
     from pygraph.commands.context import run
-    run(query, name)
+    run(query, name, show_source=source)
 
 
 @app.command()
@@ -150,12 +151,13 @@ def path(
 
 @app.command()
 def orphans(
+    all: bool = typer.Option(False, "--all", help="Include public uncalled symbols"),
     root: str = typer.Option(".", "--root", help="Project root directory"),
 ) -> None:
-    """List uncalled private symbols"""
+    """List unreachable symbols (dead code)"""
     query = _load_query(root)
     from pygraph.commands.orphans import run
-    run(query)
+    run(query, include_public=all)
 
 
 @app.command()

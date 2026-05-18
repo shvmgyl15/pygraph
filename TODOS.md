@@ -63,9 +63,25 @@
 - [x] `--root` flag for running MCP server against any project
 
 ## Phase 9: Advanced Features
-- [x] boundaries (architecture enforcement via .pygraph/boundaries.json) — `src/pygraph/graph/boundaries.py`, `src/pygraph/commands/boundaries.py`, MCP tool, CLI + 15 tests
-- [x] Incremental builds (mtime tracking, merge unchanged data, skip re-parse) — `src/pygraph/graph/cache.py`, `src/pygraph/builder.py` refactored, 20 tests
-- [x] changes / stale (git-aware incremental analysis) — `get_changes(since)`, `get_stale(days)` in query.py, CLI commands, MCP tools, 10 tests
-- [x] plan / review (change planning reports) — `get_plan()` in query.py, CLI `pygraph plan` / `pygraph review`, MCP tools, Markdown output, 7 tests
-- [x] add-opencode-plugin (auto-configure opencode MCP + agent) — `src/pygraph/commands/opencode_plugin.py`, creates `.opencode.json` with pygraph MCP server + architect agent, MCP tool
-- [x] Enhanced GRAPH_REPORT.md (hotspots, boundaries, coupling, stale) — `get_graph_report()` in query.py, CLI `pygraph graph-report`, MCP tool, Markdown output with overview + symbols by kind + hotspots + coupling top 10
+- [x] boundaries (architecture enforcement via .pygraph/boundaries.json)
+- [x] Incremental builds (mtime tracking, merge unchanged data, skip re-parse)
+- [x] changes / stale (git-aware incremental analysis)
+- [x] plan / review (change planning reports)
+- [x] add-opencode-plugin (auto-configure opencode MCP + agent)
+- [x] Enhanced GRAPH_REPORT.md (hotspots, boundaries, coupling, stale)
+
+## Phase 10: Query Engine Fixes + Missing Extractors
+- [x] Rewrite `_resolve_callee` to parse `ClassName(args).method()` patterns
+- [x] Fix `get_callers` to use `_resolve_callee` (consistent with all other methods)
+- [x] Fix `get_callees` to aggregate calls from class methods
+- [x] Fix coupling/hotspot to use qualified names (`ClassName.method`)
+- [x] Fix `_callers_by_name` index to also key by receiver (class name)
+- [x] Fix `get_path` visited tracking redundant check
+- [x] Build env_reads extractor (`os.environ.get`, `os.getenv`, `environ[]`)
+- [x] Build errors extractor (`raise` / `raise ... from ...` detection)
+- [x] Build test_edges extractor (scan test functions, link to called project symbols)
+- [x] Build implements extractor (ABC/Protocol subclassing detection)
+- [x] Better error messages for `changes`/`plan`/`review` snapshot misses
+- [x] `orphans --all` flag for public uncalled symbols
+- [x] `context` structured summary (source behind `--source` flag)
+- [x] Run `pytest && mypy src && ruff check` — fix all failures

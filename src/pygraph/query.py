@@ -12,22 +12,58 @@ from pygraph.graph.serialize import deserialize
 from pygraph.graph.types import CallEdge, FileNode, Graph, ImportEdge, SymbolNode
 
 
+def _split_dotted_path(path: str) -> list[str]:
+    parts: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for ch in path:
+        if ch == "(":
+            depth += 1
+            current.append(ch)
+        elif ch == ")":
+            depth -= 1
+            current.append(ch)
+        elif ch == "." and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    parts.append("".join(current))
+    return parts
+
+
+def _strip_call_args(segment: str) -> str:
+    paren = segment.find("(")
+    return segment[:paren] if paren != -1 else segment
+
+
+def _normalize_callee_raw(callee_raw: str) -> str:
+    parts = _split_dotted_path(callee_raw)
+    cleaned = [_strip_call_args(p) for p in parts]
+    return ".".join(cleaned)
+
+
 def _resolve_callee(
     callee_raw: str,
     symbols_by_name: dict[str, list[SymbolNode]],
     symbols_by_receiver: dict[str, list[SymbolNode]] | None = None,
 ) -> SymbolNode | None:
-    if callee_raw in symbols_by_name:
-        return symbols_by_name[callee_raw][0]
+    normalized = _normalize_callee_raw(callee_raw)
 
-    parts = callee_raw.split(".")
+    if normalized in symbols_by_name:
+        return symbols_by_name[normalized][0]
+
+    parts = normalized.split(".")
     if len(parts) >= 2 and symbols_by_receiver is not None:
-        receiver = parts[0]
-        method = ".".join(parts[1:])
-        candidates = symbols_by_receiver.get(receiver, [])
-        for sym in candidates:
-            if sym.name == method:
-                return sym
+        for i in range(len(parts) - 2, -1, -1):
+            cls_name = parts[i]
+            if cls_name in symbols_by_name:
+                for cls_sym in symbols_by_name[cls_name]:
+                    if cls_sym.kind == "class":
+                        method_name = ".".join(parts[i + 1 :])
+                        for msym in symbols_by_receiver.get(cls_name, []):
+                            if msym.name == method_name:
+                                return msym
 
     for i in range(len(parts), 0, -1):
         candidate = ".".join(parts[:i])
@@ -73,6 +109,10 @@ class GraphQuery:
                 self._callers_by_name.setdefault(callee.name, []).append(
                     (call.caller_symbol_id, call)
                 )
+                if callee.receiver:
+                    self._callers_by_name.setdefault(callee.receiver, []).append(
+                        (call.caller_symbol_id, call)
+                    )
 
         for imp in self.graph.imports:
             self._imports_by_file.setdefault(imp.from_file, []).append(imp)
@@ -129,20 +169,29 @@ class GraphQuery:
         self, symbol_name: str
     ) -> list[tuple[SymbolNode, CallEdge]]:
         result: list[tuple[SymbolNode, CallEdge]] = []
+        target_ids: set[str] = set()
         for sym in self.get_all_symbols(symbol_name):
-            for edge in self.graph.calls:
-                if edge.callee_raw == sym.name or edge.callee_raw.endswith(
-                    f".{sym.name}"
-                ):
-                    caller = self._symbols_by_id.get(edge.caller_symbol_id)
-                    if caller:
-                        result.append((caller, edge))
+            target_ids.add(sym.id)
+
+        for edge in self.graph.calls:
+            callee = _resolve_callee(
+                edge.callee_raw,
+                self._symbols_by_name,
+                self._symbols_by_receiver,
+            )
+            if callee is None:
+                continue
+            if callee.id in target_ids or callee.receiver == symbol_name:
+                caller = self._symbols_by_id.get(edge.caller_symbol_id)
+                if caller:
+                    result.append((caller, edge))
         return result
 
     def get_callees(
         self, symbol_name: str
     ) -> list[tuple[SymbolNode | None, CallEdge]]:
         result: list[tuple[SymbolNode | None, CallEdge]] = []
+        seen: set[tuple[str, str, int]] = set()
         for sym in self.get_all_symbols(symbol_name):
             edges = self._callees_of.get(sym.id, [])
             for edge in edges:
@@ -151,7 +200,24 @@ class GraphQuery:
                     self._symbols_by_name,
                     self._symbols_by_receiver,
                 )
-                result.append((callee, edge))
+                key = (edge.caller_symbol_id, edge.callee_raw, edge.line)
+                if key not in seen:
+                    seen.add(key)
+                    result.append((callee, edge))
+
+            if sym.kind == "class":
+                for method_sym in self._symbols_by_receiver.get(sym.name, []):
+                    method_edges = self._callees_of.get(method_sym.id, [])
+                    for edge in method_edges:
+                        callee = _resolve_callee(
+                            edge.callee_raw,
+                            self._symbols_by_name,
+                            self._symbols_by_receiver,
+                        )
+                        key = (edge.caller_symbol_id, edge.callee_raw, edge.line)
+                        if key not in seen:
+                            seen.add(key)
+                            result.append((callee, edge))
         return result
 
     def get_imports(self, file_path: str) -> list[ImportEdge]:
@@ -166,7 +232,9 @@ class GraphQuery:
     def get_source(self, file_path: str) -> str | None:
         return self._load_source(file_path)
 
-    def get_context(self, symbol_name: str) -> dict[str, Any]:
+    def get_context(
+        self, symbol_name: str, include_source: bool = True
+    ) -> dict[str, Any]:
         symbol = self.get_symbol(symbol_name)
         source: str | None = None
         callers: list[dict[str, Any]] = []
@@ -188,7 +256,7 @@ class GraphQuery:
                     "line": edge.line,
                     "callee_raw": edge.callee_raw,
                 })
-            if symbol.file:
+            if include_source and symbol.file:
                 source = self._load_source(symbol.file)
 
             for te in self.graph.test_edges:
@@ -224,13 +292,14 @@ class GraphQuery:
             if sym.is_exported:
                 entry_points.add(sym.name)
         for route in self.graph.routes:
-            parts = route.handler.rsplit(".", 1)
-            entry_points.add(parts[-1])
+            parts = route.handler.rsplit("::", 1)
+            if len(parts) > 1:
+                entry_points.add(parts[-1])
         for te in self.graph.test_edges:
             entry_points.add(te.test_func)
         return entry_points
 
-    def get_orphans(self) -> list[SymbolNode]:
+    def get_orphans(self, include_public: bool = False) -> list[SymbolNode]:
         entry_points = self._get_entry_point_names()
 
         visited_ids: set[str] = set()
@@ -257,7 +326,7 @@ class GraphQuery:
 
         orphans: list[SymbolNode] = []
         for sym in self.graph.symbols:
-            if not sym.is_exported and sym.id not in visited_ids:
+            if sym.id not in visited_ids and (include_public or not sym.is_exported):
                 orphans.append(sym)
 
         return orphans
@@ -340,7 +409,7 @@ class GraphQuery:
                             result.append(edge_cache.get(key, {"from": path[i], "to": path[i + 1]}))
                         result.append(edge_cache[(last, to_name)])
                         return result
-                    if callee.name not in visited_ids and callee.id not in visited_ids:
+                    if callee.id not in visited_ids:
                         queue.append(path + [callee.name])
 
         return None
@@ -389,6 +458,9 @@ class GraphQuery:
         ranked.sort(key=lambda x: x["complexity"], reverse=True)
         return ranked[:20]
 
+    def _qualified_name(self, sym: SymbolNode) -> str:
+        return f"{sym.receiver}.{sym.name}" if sym.receiver else sym.name
+
     def get_coupling(
         self, name: str | None = None
     ) -> list[dict[str, Any]]:
@@ -396,16 +468,24 @@ class GraphQuery:
         ce: dict[str, int] = {}
 
         for sym in self.graph.symbols:
-            n = sym.name
-            ca.setdefault(n, 0)
-            ce.setdefault(n, 0)
+            key = self._qualified_name(sym)
+            ca.setdefault(key, 0)
+            ce.setdefault(key, 0)
 
         for call in self.graph.calls:
-            caller_name = call.caller_name
-            ca_parts = call.callee_raw.split(".")
-            callee_name = ca_parts[-1]
-            ce[caller_name] = ce.get(caller_name, 0) + 1
-            ca[callee_name] = ca.get(callee_name, 0) + 1
+            caller_sym = self._symbols_by_id.get(call.caller_symbol_id)
+            if caller_sym:
+                caller_key = self._qualified_name(caller_sym)
+                ce[caller_key] = ce.get(caller_key, 0) + 1
+
+            callee = _resolve_callee(
+                call.callee_raw,
+                self._symbols_by_name,
+                self._symbols_by_receiver,
+            )
+            if callee:
+                callee_key = self._qualified_name(callee)
+                ca[callee_key] = ca.get(callee_key, 0) + 1
 
         if name:
             if name not in ca and name not in ce:
@@ -429,25 +509,34 @@ class GraphQuery:
         ce: dict[str, int] = {}
 
         for sym in self.graph.symbols:
-            n = sym.name
-            ca.setdefault(n, 0)
-            ce.setdefault(n, 0)
+            key = self._qualified_name(sym)
+            ca.setdefault(key, 0)
+            ce.setdefault(key, 0)
 
         for call in self.graph.calls:
-            caller_name = call.caller_name
-            ca_parts = call.callee_raw.split(".")
-            callee_name = ca_parts[-1]
-            ce[caller_name] = ce.get(caller_name, 0) + 1
-            ca[callee_name] = ca.get(callee_name, 0) + 1
+            caller_sym = self._symbols_by_id.get(call.caller_symbol_id)
+            if caller_sym:
+                caller_key = self._qualified_name(caller_sym)
+                ce[caller_key] = ce.get(caller_key, 0) + 1
+
+            callee = _resolve_callee(
+                call.callee_raw,
+                self._symbols_by_name,
+                self._symbols_by_receiver,
+            )
+            if callee:
+                callee_key = self._qualified_name(callee)
+                ca[callee_key] = ca.get(callee_key, 0) + 1
 
         scores: list[dict[str, Any]] = []
         for sym in self.graph.symbols:
             if sym.kind not in ("function", "method") or sym.complexity is None:
                 continue
-            coupling = ca.get(sym.name, 0) + ce.get(sym.name, 0)
+            key = self._qualified_name(sym)
+            coupling = ca.get(key, 0) + ce.get(key, 0)
             score = sym.complexity * max(coupling, 1)
             scores.append({
-                "name": sym.name,
+                "name": key,
                 "kind": sym.kind,
                 "file": sym.file,
                 "line": sym.line,
@@ -575,7 +664,17 @@ class GraphQuery:
     ) -> dict[str, list[dict[str, Any]]]:
         old_graph = self._load_git_graph(since)
         if old_graph is None:
-            return {"error": [{"message": f"Could not load graph at '{since}'"}]}
+            return {
+                "error": [
+                    {
+                        "message": (
+                            f"Could not load graph at '{since}'. "
+                            f"Run `pygraph build` at the target ref first so "
+                            f".pygraph/graph.json exists in that commit."
+                        )
+                    }
+                ]
+            }
 
         old_syms: dict[tuple[str, str | None], SymbolNode] = {}
         for s in old_graph.symbols:
