@@ -174,6 +174,17 @@ class ErrorEdge:
 
 
 @dataclass
+class HttpCallEdge:
+    source_file: str = ""
+    source_line: int = 0
+    function_name: str = ""
+    method: str = ""
+    url: str = ""
+    static_segments: list[str] = field(default_factory=list)
+    has_dynamic: bool = False
+
+
+@dataclass
 class Graph:
     schema_version: str = SCHEMA_VERSION
     generated_at: str = ""
@@ -194,6 +205,7 @@ class Graph:
     blueprint_registrations: list[BlueprintRegistration] = field(default_factory=list)
     template_refs: list[TemplateRef] = field(default_factory=list)
     extensions: list[ExtensionUsage] = field(default_factory=list)
+    http_calls: list[HttpCallEdge] = field(default_factory=list)
 
 
 def make_graph(*, project_root: str = "") -> Graph:
@@ -332,6 +344,20 @@ def make_error_edge(**overrides: Any) -> ErrorEdge:
     }
     base.update(overrides)
     return ErrorEdge(**{k: v for k, v in base.items() if v is not None})
+
+
+def make_http_call_edge(**overrides: Any) -> HttpCallEdge:
+    base: dict[str, Any] = {
+        "source_file": "",
+        "source_line": 0,
+        "function_name": "",
+        "method": "",
+        "url": "",
+        "static_segments": [],
+        "has_dynamic": False,
+    }
+    base.update(overrides)
+    return HttpCallEdge(**{k: v for k, v in base.items() if v is not None})
 
 
 def make_struct_field(**overrides: Any) -> StructField:

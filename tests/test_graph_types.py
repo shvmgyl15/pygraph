@@ -332,7 +332,7 @@ class TestDeserialize:
             "env_reads": [], "dependencies": [], "test_edges": [],
             "implements": [], "mutations": [], "errors": [],
             "blueprints": [], "blueprint_registrations": [],
-            "template_refs": [], "extensions": [],
+            "template_refs": [], "extensions": [], "http_calls": [],
         }
         with pytest.raises(ValueError, match="must be a list"):
             deserialize(json.dumps(data))

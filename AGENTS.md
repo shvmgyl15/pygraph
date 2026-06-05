@@ -29,13 +29,22 @@ Key language-driven differences:
 - Linting: `ruff`
 - Type checking: `mypy` (strict mode)
 
+### Boundaries
+- **pygraph**: Owns all per-language extraction for Python: symbols, calls, routes (Flask),
+  HTTP client calls (`requests`, `httpx`), errors, env reads, test edges, decorators,
+  ABC/Protocol implements, Flask blueprints/templates/extensions, mutations.
+- **codegraph** orchestrates pygraph, tsgraph, and gograph. Do NOT add workspace-level
+  or cross-service logic here — that belongs in codegraph.
+- If a new Python-specific extraction is needed, add it here, not in codegraph.
+
 ## Agent Rules
 
 ### Task Management
 - READ TODOS.md at session start to know what's done and what's next
 - UPDATE TODOS.md when you start/finish a task (`[.]` in-progress, `[x]` done)
 - Work in phase order unless a task has no blockers
-- After a phase completes (all items `[x]`), run `git init` if not yet done, then commit: `git add -A && git commit -m "phase N: <title>"`
+- After a phase completes (all items `[x]`), run `git init` if not yet done,
+  then commit and push: `git add -A && git commit -m "phase N: <title>" && git push origin main`
 
 ### Orchestration
 - This is a single-orchestrator project. When a task has multiple independent

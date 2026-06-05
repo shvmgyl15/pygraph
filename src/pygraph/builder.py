@@ -12,6 +12,7 @@ from pygraph.extractors.calls import extract_calls
 from pygraph.extractors.env import extract_env_reads
 from pygraph.extractors.errors import extract_errors
 from pygraph.extractors.flask import extract_flask
+from pygraph.extractors.http_calls import extract_http_calls
 from pygraph.extractors.implements import extract_implements
 from pygraph.extractors.imports import extract_dependencies, extract_imports
 from pygraph.extractors.symbols import extract_symbols
@@ -27,6 +28,7 @@ from pygraph.graph.types import (
     ExtensionUsage,
     FileNode,
     Graph,
+    HttpCallEdge,
     HTTPRoute,
     ImplementsEdge,
     ImportEdge,
@@ -60,6 +62,7 @@ _ParseResult = tuple[
     list[ErrorEdge],
     list[TestEdge],
     list[ImplementsEdge],
+    list[HttpCallEdge],
     FileNode,
 ]
 
@@ -75,6 +78,7 @@ def _parse_source(
     errors = extract_errors(source, relative_path)
     test_edges = extract_test_edges(source, relative_path)
     implements = extract_implements(source, relative_path)
+    http_calls = extract_http_calls(source, relative_path)
 
     file_node = FileNode(
         id=relative_path,
@@ -99,6 +103,7 @@ def _parse_source(
         errors,
         test_edges,
         implements,
+        http_calls,
         file_node,
     )
 
@@ -131,6 +136,7 @@ def _build_full(root: str, scan_result: ScanResult) -> Graph:
     all_errors: list[ErrorEdge] = []
     all_test_edges: list[TestEdge] = []
     all_implements: list[ImplementsEdge] = []
+    all_http_calls: list[HttpCallEdge] = []
     file_nodes: list[FileNode] = []
 
     for sf in py_files:
@@ -154,6 +160,7 @@ def _build_full(root: str, scan_result: ScanResult) -> Graph:
             errors,
             test_edges,
             implements,
+            http_calls,
             file_node,
         ) = result
 
@@ -171,6 +178,7 @@ def _build_full(root: str, scan_result: ScanResult) -> Graph:
         all_errors.extend(errors)
         all_test_edges.extend(test_edges)
         all_implements.extend(implements)
+        all_http_calls.extend(http_calls)
         file_nodes.append(file_node)
 
     all_routes.extend(all_error_handlers)
@@ -201,6 +209,7 @@ def _build_full(root: str, scan_result: ScanResult) -> Graph:
     graph.errors = all_errors
     graph.test_edges = all_test_edges
     graph.implements = all_implements
+    graph.http_calls = all_http_calls
 
     return graph
 
@@ -255,6 +264,7 @@ def _merge_incremental(
     old_errors_by_file = _index_by_file(old_graph.errors, "file")
     old_test_edges_by_file = _index_by_file(old_graph.test_edges, "file")
     old_implements_by_file = _index_by_file(old_graph.implements, "file")
+    old_http_calls_by_file = _index_by_file(old_graph.http_calls, "source_file")
 
     all_symbols: list[SymbolNode] = []
     all_calls: list[CallEdge] = []
@@ -268,6 +278,7 @@ def _merge_incremental(
     all_errors: list[ErrorEdge] = []
     all_test_edges: list[TestEdge] = []
     all_implements: list[ImplementsEdge] = []
+    all_http_calls: list[HttpCallEdge] = []
     file_nodes: list[FileNode] = []
 
     for sf in py_files:
@@ -288,6 +299,7 @@ def _merge_incremental(
             all_errors.extend(old_errors_by_file.get(rel, []))
             all_test_edges.extend(old_test_edges_by_file.get(rel, []))
             all_implements.extend(old_implements_by_file.get(rel, []))
+            all_http_calls.extend(old_http_calls_by_file.get(rel, []))
             old_fn = next(
                 (f for f in old_graph.files if f.path == rel), None
             )
@@ -315,6 +327,7 @@ def _merge_incremental(
             errors,
             test_edges,
             implements,
+            http_calls,
             file_node,
         ) = result
 
@@ -332,6 +345,7 @@ def _merge_incremental(
         all_errors.extend(errors)
         all_test_edges.extend(test_edges)
         all_implements.extend(implements)
+        all_http_calls.extend(http_calls)
         file_nodes.append(file_node)
 
     package = make_package_node(
@@ -359,6 +373,7 @@ def _merge_incremental(
     graph.errors = all_errors
     graph.test_edges = all_test_edges
     graph.implements = all_implements
+    graph.http_calls = all_http_calls
 
     cache.save(cache_path)
     return graph
@@ -453,6 +468,7 @@ def build_graph_from_ref(ref: str, root: str) -> Graph:
     all_errors: list[ErrorEdge] = []
     all_test_edges: list[TestEdge] = []
     all_implements: list[ImplementsEdge] = []
+    all_http_calls: list[HttpCallEdge] = []
     file_nodes: list[FileNode] = []
 
     for rel_path in py_files:
@@ -474,7 +490,7 @@ def build_graph_from_ref(ref: str, root: str) -> Graph:
             symbols, calls, imports,
             routes, error_handlers, cli_commands,
             blueprints, blueprint_registrations, template_refs, extensions,
-            env_reads, errors, test_edges, implements, file_node,
+            env_reads, errors, test_edges, implements, http_calls, file_node,
         ) = parsed
 
         all_symbols.extend(symbols)
@@ -491,6 +507,7 @@ def build_graph_from_ref(ref: str, root: str) -> Graph:
         all_errors.extend(errors)
         all_test_edges.extend(test_edges)
         all_implements.extend(implements)
+        all_http_calls.extend(http_calls)
         file_nodes.append(file_node)
 
     all_routes.extend(all_error_handlers)
@@ -518,6 +535,7 @@ def build_graph_from_ref(ref: str, root: str) -> Graph:
     graph.errors = all_errors
     graph.test_edges = all_test_edges
     graph.implements = all_implements
+    graph.http_calls = all_http_calls
 
     return graph
 

@@ -16,6 +16,7 @@ from pygraph.graph.types import (
     ExtensionUsage,
     FileNode,
     Graph,
+    HttpCallEdge,
     HTTPRoute,
     ImplementsEdge,
     ImportEdge,
@@ -31,7 +32,7 @@ ARRAY_FIELDS: set[str] = {
     "packages", "files", "symbols", "calls", "imports", "routes",
     "env_reads", "dependencies", "test_edges", "implements",
     "mutations", "errors", "blueprints", "blueprint_registrations",
-    "template_refs", "extensions",
+    "template_refs", "extensions", "http_calls",
 }
 
 REQUIRED_FIELDS: set[str] = ARRAY_FIELDS | {"schema_version", "generated_at", "project_root"}
@@ -62,6 +63,7 @@ def graph_to_dict(graph: Graph) -> dict[str, Any]:
         "blueprint_registrations": [_filter_none(asdict(r)) for r in graph.blueprint_registrations],
         "template_refs": [_filter_none(asdict(t)) for t in graph.template_refs],
         "extensions": [_filter_none(asdict(e)) for e in graph.extensions],
+        "http_calls": [_filter_none(asdict(h)) for h in graph.http_calls],
     })
 
 
@@ -102,6 +104,7 @@ def dict_to_graph(data: dict[str, Any]) -> Graph:
         ],
         template_refs=[TemplateRef(**t) for t in data.get("template_refs", [])],
         extensions=[ExtensionUsage(**e) for e in data.get("extensions", [])],
+        http_calls=[HttpCallEdge(**h) for h in data.get("http_calls", [])],
     )
 
 
