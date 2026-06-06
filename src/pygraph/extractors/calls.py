@@ -48,7 +48,7 @@ def extract_calls(
         if isinstance(node, ast.Call):
             caller = _get_enclosing_qualified_name(tree, node.lineno)
             if caller is None:
-                continue
+                caller = "<module>"
             callee_raw = _get_callee_raw(node)
             calls.append(
                 CallEdge(
