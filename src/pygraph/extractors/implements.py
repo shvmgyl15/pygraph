@@ -55,6 +55,8 @@ def extract_implements(source: str, file_path: str) -> list[ImplementsEdge]:
                     ImplementsEdge(
                         interface=full_base,
                         concrete=concrete_name,
+                        file=file_path,
+                        line=node.lineno,
                     )
                 )
 

@@ -155,6 +155,8 @@ class TestEdge:
 class ImplementsEdge:
     interface: str = ""
     concrete: str = ""
+    file: str = ""
+    line: int = 0
 
 
 @dataclass
