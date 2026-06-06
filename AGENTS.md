@@ -37,6 +37,21 @@ Key language-driven differences:
   or cross-service logic here — that belongs in codegraph.
 - If a new Python-specific extraction is needed, add it here, not in codegraph.
 
+## Installation (for AI Agents)
+
+Install from PyPI:
+
+```bash
+pip install pygraph-mcp
+```
+
+After install, index a Python project:
+
+```bash
+pygraph build --root /path/to/project
+pygraph mcp    # start MCP server
+```
+
 ## Agent Rules
 
 ### Task Management
