@@ -142,7 +142,7 @@ def _build_full(root: str, scan_result: ScanResult) -> Graph:
     for sf in py_files:
         try:
             result = _parse_file(sf, pkg_name)
-        except OSError:
+        except Exception:
             continue
 
         (
@@ -309,7 +309,7 @@ def _merge_incremental(
 
         try:
             result = _parse_file(sf, pkg_name)
-        except OSError:
+        except Exception:
             continue
 
         (
