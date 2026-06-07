@@ -99,34 +99,55 @@ def extract_event_productions(
     return result
 
 
+def _extract_guard_value(node: ast.expr) -> dict[str, Any]:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return {"value": node.value, "const_ref": False, "ref": None}
+    if isinstance(node, ast.Name):
+        return {"value": None, "const_ref": True, "ref": node.id}
+    # Chained attributes: SomeClass.CONSTANT, SomeClass.CONSTANT.value, SomeModel().attr
+    parts: list[str] = []
+    cur: ast.expr = node
+    while isinstance(cur, ast.Attribute):
+        parts.append(cur.attr)
+        cur = cur.value
+    if isinstance(cur, ast.Name):
+        parts.append(cur.id)
+    elif isinstance(cur, ast.Call) and isinstance(cur.func, ast.Name):
+        parts.append(f"{cur.func.id}()")
+    else:
+        parts.append(ast.unparse(cur))
+    return {"value": None, "const_ref": True, "ref": ".".join(reversed(parts))}
+
+
 def _extract_guards_from_if(node: ast.If) -> list[dict[str, Any]]:
-    guards: list[dict[str, Any]] = []
     if not isinstance(node.test, ast.Compare):
-        return guards
+        return []
     compare = node.test
     if len(compare.ops) != 1 or len(compare.comparators) != 1:
-        return guards
+        return []
     if not isinstance(compare.ops[0], ast.Eq):
-        return guards
-    if not isinstance(compare.left, ast.Name):
-        return guards
-    field = compare.left.id
-    right = compare.comparators[0]
-    if isinstance(right, ast.Constant) and isinstance(right.value, str):
-        guards.append({"field": field, "op": "eq", "value": right.value})
-    elif isinstance(right, ast.Attribute) and isinstance(right.value, ast.Name):
-        g: dict[str, Any] = {"field": field, "op": "eq"}
-        g["value"] = None
-        g["const_ref"] = True
-        g["ref"] = f"{right.value.id}.{right.attr}"
-        guards.append(g)
-    elif isinstance(right, ast.Name):
-        g2: dict[str, Any] = {"field": field, "op": "eq"}
-        g2["value"] = None
-        g2["const_ref"] = True
-        g2["ref"] = right.id
-        guards.append(g2)
-    return guards
+        return []
+
+    # Extract field name from left side
+    left = compare.left
+    if isinstance(left, ast.Name):
+        field = left.id
+    elif isinstance(left, ast.Call):
+        # data.get("key") == value pattern
+        if (isinstance(left.func, ast.Attribute) and left.func.attr == "get"
+                and len(left.args) == 1 and isinstance(left.args[0], ast.Constant)
+                and isinstance(left.args[0].value, str)):
+            field = left.args[0].value
+        else:
+            return []
+    else:
+        return []
+
+    # Extract value from right side
+    guard = _extract_guard_value(compare.comparators[0])
+    guard["field"] = field
+    guard["op"] = "eq"
+    return [guard]
 
 
 def extract_dispatch_guards(

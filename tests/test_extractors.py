@@ -631,3 +631,43 @@ def create_order():
         assert len(result) == 1
         assert result[0]["boundary"] == "kafka_publish"
         assert result[0]["topic"] == "orders"
+
+    def test_dispatch_guards_data_get_pattern(self) -> None:
+        src = """
+def handle(data):
+    if data.get("entityName") == "ORDER":
+        pass
+    elif data.get("commandName") == "CREATE":
+        pass
+"""
+        from pygraph.extractors.events import extract_dispatch_guards
+        import ast
+        tree = ast.parse(src)
+        func = tree.body[0]
+        guards = extract_dispatch_guards(func)
+        assert len(guards) == 2
+        assert guards[0]["field"] == "entityName"
+        assert guards[0]["value"] == "ORDER"
+        assert guards[1]["field"] == "commandName"
+        assert guards[1]["value"] == "CREATE"
+
+    def test_dispatch_guards_complex_right_side(self) -> None:
+        src = """
+def handle():
+    if data.get("entityName") == SomeModel().entity_type:
+        pass
+    elif data.get("commandName") == SomeClass.CONSTANT.value:
+        pass
+"""
+        from pygraph.extractors.events import extract_dispatch_guards
+        import ast
+        tree = ast.parse(src)
+        func = tree.body[0]
+        guards = extract_dispatch_guards(func)
+        assert len(guards) == 2
+        assert guards[0]["field"] == "entityName"
+        assert guards[0]["const_ref"] is True
+        assert "SomeModel().entity_type" in guards[0]["ref"]
+        assert guards[1]["field"] == "commandName"
+        assert guards[1]["const_ref"] is True
+        assert "SomeClass.CONSTANT.value" in guards[1]["ref"]
