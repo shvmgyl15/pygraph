@@ -411,13 +411,14 @@ def _extract_flask_restful_routes(tree: ast.Module, file_path: str) -> list[HTTP
         if cls_def:
             for item in cls_def.body:
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                    method_upper = {
-                        "get": "GET", "post": "POST", "put": "PUT",
-                        "delete": "DELETE", "patch": "PATCH",
-                        "head": "HEAD", "options": "OPTIONS",
-                    }.get(item.name.lower())
-                    if method_upper:
-                        http_methods.append(method_upper)
+                    for seg in item.name.lower().split("_"):
+                        mapped = {
+                            "get": "GET", "post": "POST", "put": "PUT",
+                            "delete": "DELETE", "patch": "PATCH",
+                            "head": "HEAD", "options": "OPTIONS",
+                        }.get(seg)
+                        if mapped and mapped not in http_methods:
+                            http_methods.append(mapped)
         if not http_methods:
             http_methods = ["GET"]
 
