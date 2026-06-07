@@ -49,6 +49,8 @@ class SymbolNode:
     embedded_types: list[str] = field(default_factory=list)
     arity: int | None = None
     complexity: int | None = None
+    event_productions: list[dict[str, Any]] = field(default_factory=list)
+    event_consumptions: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

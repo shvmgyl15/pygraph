@@ -7,10 +7,11 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from pygraph.config import get_plugins
+from pygraph.config import get_plugins, load_event_config
 from pygraph.extractors.calls import extract_calls
 from pygraph.extractors.env import extract_env_reads
 from pygraph.extractors.errors import extract_errors
+from pygraph.extractors.events import enrich_symbols
 from pygraph.extractors.flask import extract_flask
 from pygraph.extractors.http_calls import extract_http_calls
 from pygraph.extractors.implements import extract_implements
@@ -68,9 +69,12 @@ _ParseResult = tuple[
 
 
 def _parse_source(
-    source: str, relative_path: str, pkg_name: str
+    source: str, relative_path: str, pkg_name: str,
+    event_config: list[dict[str, Any]] | None = None,
 ) -> _ParseResult:
     symbols = extract_symbols(source, relative_path, pkg_name)
+    if event_config:
+        symbols = enrich_symbols(symbols, source, event_config)
     calls = extract_calls(source, relative_path)
     imports = extract_imports(source, relative_path, pkg_name)
     flask = extract_flask(source, relative_path)
@@ -109,15 +113,19 @@ def _parse_source(
 
 
 def _parse_file(
-    sf: ScannedFile, pkg_name: str
+    sf: ScannedFile, pkg_name: str,
+    event_config: list[dict[str, Any]] | None = None,
 ) -> _ParseResult:
     source = Path(sf.path).read_text()
-    result = _parse_source(source, sf.relative_path, pkg_name)
+    result = _parse_source(source, sf.relative_path, pkg_name, event_config)
     result[-1].generated = sf.is_generated
     return result
 
 
-def _build_full(root: str, scan_result: ScanResult) -> Graph:
+def _build_full(
+    root: str, scan_result: ScanResult,
+    event_config: list[dict[str, Any]] | None = None,
+) -> Graph:
     root_path = Path(root).resolve()
     pkg_name = root_path.name
     py_files = [f for f in scan_result.files if f.kind == "py"]
@@ -141,7 +149,7 @@ def _build_full(root: str, scan_result: ScanResult) -> Graph:
 
     for sf in py_files:
         try:
-            result = _parse_file(sf, pkg_name)
+            result = _parse_file(sf, pkg_name, event_config)
         except Exception:
             continue
 
@@ -228,6 +236,7 @@ def _merge_incremental(
     old_graph: Graph,
     cache: BuildCache,
     cache_path: Path,
+    event_config: list[dict[str, Any]] | None = None,
 ) -> Graph:
     pkg_name = root_path.name
     py_files = [f for f in scan_result.files if f.kind == "py"]
@@ -308,7 +317,7 @@ def _merge_incremental(
             continue
 
         try:
-            result = _parse_file(sf, pkg_name)
+            result = _parse_file(sf, pkg_name, event_config)
         except Exception:
             continue
 
@@ -417,6 +426,7 @@ def _run_plugins(graph: Graph, root: str) -> None:
 def build_graph(root: str, incremental: bool = True) -> Graph:
     root_path = Path(root).resolve()
     scan_result = scan_files(root)
+    event_config = load_event_config(root)
 
     if incremental:
         graph_path = root_path / ".pygraph" / "graph.json"
@@ -426,12 +436,13 @@ def build_graph(root: str, incremental: bool = True) -> Graph:
             old_graph = read_graph(graph_path)
             old_cache = BuildCache.load(cache_path)
             graph = _merge_incremental(
-                root_path, scan_result, old_graph, old_cache, cache_path
+                root_path, scan_result, old_graph, old_cache, cache_path,
+                event_config,
             )
             _run_plugins(graph, root)
             return graph
 
-    graph = _build_full(root, scan_result)
+    graph = _build_full(root, scan_result, event_config)
     _run_plugins(graph, root)
     return graph
 
@@ -441,6 +452,7 @@ def build_graph_from_ref(ref: str, root: str) -> Graph:
     if not root_path.exists():
         raise ValueError(f"Root path '{root}' does not exist")
     pkg_name = root_path.name
+    event_config = load_event_config(root)
 
     try:
         result = subprocess.run(
@@ -484,7 +496,7 @@ def build_graph_from_ref(ref: str, root: str) -> Graph:
         except (subprocess.TimeoutExpired, subprocess.SubprocessError):
             continue
 
-        parsed = _parse_source(source, rel_path, pkg_name)
+        parsed = _parse_source(source, rel_path, pkg_name, event_config)
 
         (
             symbols, calls, imports,

@@ -73,6 +73,8 @@ def _dict_to_symbol(data: dict[str, Any]) -> SymbolNode:
     fields.setdefault("bases", [])
     fields.setdefault("struct_fields", [])
     fields.setdefault("embedded_types", [])
+    fields.setdefault("event_productions", [])
+    fields.setdefault("event_consumptions", [])
     raw_struct_fields = fields.get("struct_fields", [])
     fields["struct_fields"] = [
         StructField(**sf) if isinstance(sf, dict) else sf

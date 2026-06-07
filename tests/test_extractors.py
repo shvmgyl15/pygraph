@@ -496,3 +496,107 @@ class Service:
         assert names.get("complex") is not None
         assert names["simple"].complexity == 1
         assert names["complex"].complexity == 2
+
+
+class TestEventExtractors:
+    def test_extract_kafka_producer(self) -> None:
+        src = """
+def create_order():
+    producer.send(topic="orders", event_code="ORDER_CREATED")
+"""
+        from pygraph.extractors.events import extract_event_productions, enrich_symbols
+        import ast
+        tree = ast.parse(src)
+        func = tree.body[0]
+        config = [{"name": "kafka_publish", "type": "producer", "match": {"callee": "producer.send", "args": {"topic": "topic", "event_code": "event_code"}}}]
+        result = extract_event_productions(func, config)
+        assert len(result) == 1
+        assert result[0]["boundary"] == "kafka_publish"
+        assert result[0]["topic"] == "orders"
+        assert result[0]["event_code"] == "ORDER_CREATED"
+
+    def test_extract_dispatch_guards(self) -> None:
+        src = """
+def handle_callback(entity, command):
+    if entity == "ORDER":
+        pass
+    elif command == "CREATE":
+        pass
+"""
+        from pygraph.extractors.events import extract_dispatch_guards
+        import ast
+        tree = ast.parse(src)
+        func = tree.body[0]
+        guards = extract_dispatch_guards(func)
+        assert len(guards) == 2
+        assert guards[0]["field"] == "entity"
+        assert guards[0]["value"] == "ORDER"
+        assert guards[1]["field"] == "command"
+        assert guards[1]["value"] == "CREATE"
+
+    def test_extract_consumer_via_decorator(self) -> None:
+        src = """
+@kafka_consumer(topic="orders")
+def process_order(data):
+    pass
+"""
+        from pygraph.extractors.events import extract_event_consumptions
+        import ast
+        tree = ast.parse(src)
+        func = tree.body[0]
+        config = [{"name": "kafka_consume", "type": "consumer", "match": {"decorator": "kafka_consumer", "args": {"topic": "topic"}}}]
+        result = extract_event_consumptions(func, None, config)
+        assert len(result) >= 1
+        entry = next(e for e in result if e["boundary"] == "kafka_consume")
+        assert entry["topic"] == "orders"
+
+    def test_extract_interface_based_consumer(self) -> None:
+        src = """
+class OrderHandler(CallbackHandler):
+    def handle(self, entity):
+        if entity == "ORDER":
+            pass
+"""
+        from pygraph.extractors.events import extract_event_consumptions
+        import ast
+        tree = ast.parse(src)
+        cls = tree.body[0]
+        func = cls.body[0]
+        config = [{"name": "callback_handler", "type": "consumer", "match": {"interface": "CallbackHandler"}}]
+        result = extract_event_consumptions(func, cls, config)
+        assert len(result) >= 1
+        entry = next(e for e in result if e["boundary"] == "callback_handler")
+        assert "guards" in entry
+        assert entry["guards"][0]["field"] == "entity"
+        assert entry["guards"][0]["value"] == "ORDER"
+
+    def test_enrich_symbols(self) -> None:
+        src = """
+def create():
+    producer.send(topic="orders", event_code="ORDER_CREATED")
+"""
+        from pygraph.extractors.events import enrich_symbols
+        from pygraph.extractors.symbols import extract_symbols
+        symbols = extract_symbols(src, "test.py", "pkg")
+        config = [{"name": "kafka_publish", "type": "producer", "match": {"callee": "producer.send", "args": {"topic": "topic", "event_code": "event_code"}}}]
+        enriched = enrich_symbols(symbols, src, config)
+        has_producer = any(
+            sym.event_productions and sym.event_productions[0]["boundary"] == "kafka_publish"
+            for sym in enriched
+        )
+        assert has_producer
+
+    def test_callee_pattern_consumer(self) -> None:
+        src = """
+def subscribe():
+    sse = EventSource("/api/events")
+"""
+        from pygraph.extractors.events import extract_event_consumptions
+        import ast
+        tree = ast.parse(src)
+        func = tree.body[0]
+        config = [{"name": "sse_subscribe", "type": "consumer", "match": {"callee_pattern": "EventSource", "args": {"url": 0}}}]
+        result = extract_event_consumptions(func, None, config)
+        assert len(result) >= 1
+        entry = next(e for e in result if e["boundary"] == "sse_subscribe")
+        assert entry["url"] == "/api/events"
