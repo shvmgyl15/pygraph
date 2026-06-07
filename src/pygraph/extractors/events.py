@@ -20,17 +20,24 @@ def _decorator_name(node: ast.expr) -> str | None:
 def _match_callee(node: ast.Call, pattern: str) -> bool:
     parts = pattern.split(".")
     callee = node.func
-    for i in range(len(parts) - 1, -1, -1):
+    i = len(parts) - 1
+    while i >= 0:
         if isinstance(callee, ast.Attribute):
             if callee.attr == parts[i]:
                 callee = callee.value
+                i -= 1
             else:
                 return False
         elif isinstance(callee, ast.Name):
-            return i == 0 and callee.id == parts[i]
+            if i == 0 and callee.id == parts[i]:
+                return True
+            return i < 0
+        elif isinstance(callee, ast.Call):
+            callee = callee.func
         else:
             return False
-    return isinstance(callee, ast.Name) and callee.id == parts[0] if parts else False
+    # All segments consumed — match succeeded regardless of remaining callee
+    return True
 
 
 def _extract_kwarg(call: ast.Call, name: str) -> str | None:

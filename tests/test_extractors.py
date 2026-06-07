@@ -504,7 +504,7 @@ class TestEventExtractors:
 def create_order():
     producer.send(topic="orders", event_code="ORDER_CREATED")
 """
-        from pygraph.extractors.events import extract_event_productions, enrich_symbols
+        from pygraph.extractors.events import extract_event_productions
         import ast
         tree = ast.parse(src)
         func = tree.body[0]
@@ -600,3 +600,34 @@ def subscribe():
         assert len(result) >= 1
         entry = next(e for e in result if e["boundary"] == "sse_subscribe")
         assert entry["url"] == "/api/events"
+
+    def test_extract_producer_via_call_expression(self) -> None:
+        src = """
+def create_order():
+    KafkaClient().send(topic="orders", event_code="ORDER_CREATED")
+"""
+        from pygraph.extractors.events import extract_event_productions
+        import ast
+        tree = ast.parse(src)
+        func = tree.body[0]
+        config = [{"name": "kafka_publish", "type": "producer", "match": {"callee": "send", "args": {"topic": "topic", "event_code": "event_code"}}}]
+        result = extract_event_productions(func, config)
+        assert len(result) == 1
+        assert result[0]["boundary"] == "kafka_publish"
+        assert result[0]["topic"] == "orders"
+        assert result[0]["event_code"] == "ORDER_CREATED"
+
+    def test_extract_producer_via_call_expression_full_pattern(self) -> None:
+        src = """
+def create_order():
+    producer().send(topic="orders")
+"""
+        from pygraph.extractors.events import extract_event_productions
+        import ast
+        tree = ast.parse(src)
+        func = tree.body[0]
+        config = [{"name": "kafka_publish", "type": "producer", "match": {"callee": "producer.send", "args": {"topic": "topic"}}}]
+        result = extract_event_productions(func, config)
+        assert len(result) == 1
+        assert result[0]["boundary"] == "kafka_publish"
+        assert result[0]["topic"] == "orders"
