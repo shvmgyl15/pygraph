@@ -355,6 +355,76 @@ migrate.init_app(app)
         assert result["blueprints"] == []
         assert result["template_refs"] == []
 
+    def test_flask_restful_add_resource_single_path(self) -> None:
+        src = """
+from flask_restful import Resource, Api
+
+api = Api(app)
+
+class UserResource(Resource):
+    def get(self, id):
+        pass
+    def post(self):
+        pass
+
+api.add_resource(UserResource, '/users/<id>')
+"""
+        from pygraph.extractors.flask import extract_flask
+
+        result = extract_flask(src, "app.py")
+        routes = [r for r in result["routes"] if r.method == "WRAPPER" or r.method in ("GET", "POST", "PUT", "DELETE")]
+        matching = [r for r in routes if r.path == "/users/<id>"]
+        assert len(matching) == 2
+        methods = {r.method for r in matching}
+        assert methods == {"GET", "POST"}
+        assert all(r.handler == "app.py::UserResource" for r in matching)
+
+    def test_flask_restful_add_resource_multi_path(self) -> None:
+        src = """
+from flask_restful import Resource, Api
+
+api = Api(app)
+
+class ItemResource(Resource):
+    def get(self):
+        pass
+    def delete(self):
+        pass
+
+api.add_resource(ItemResource, '/items', '/items/<id>')
+"""
+        from pygraph.extractors.flask import extract_flask
+
+        result = extract_flask(src, "app.py")
+        matching = [r for r in result["routes"] if "ItemResource" in r.handler]
+        assert len(matching) == 4  # 2 paths × 2 methods
+        paths = {r.path for r in matching}
+        assert paths == {"/items", "/items/<id>"}
+        methods = {r.method for r in matching}
+        assert methods == {"GET", "DELETE"}
+
+    def test_flask_restful_no_methods_no_crash(self) -> None:
+        src = """
+api = Api(app)
+api.add_resource(PlainClass, '/plain')
+"""
+        from pygraph.extractors.flask import extract_flask
+
+        result = extract_flask(src, "app.py")
+        matching = [r for r in result["routes"] if r.path == "/plain"]
+        assert len(matching) == 1
+        assert matching[0].method == "GET"
+
+    def test_flask_restful_not_add_resource_not_detected(self) -> None:
+        src = """
+api.add_url_rule('/regular', view_func=handler)
+"""
+        from pygraph.extractors.flask import extract_flask
+
+        result = extract_flask(src, "app.py")
+        assert len(result["routes"]) == 1
+        assert result["routes"][0].path == "/regular"
+
 
 class TestComplexityExtraction:
     def test_base_complexity_one(self) -> None:

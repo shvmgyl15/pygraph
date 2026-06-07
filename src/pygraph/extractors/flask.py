@@ -375,6 +375,65 @@ def _extract_add_url_rule_calls(tree: ast.Module, file_path: str) -> list[HTTPRo
     return routes
 
 
+def _extract_flask_restful_routes(tree: ast.Module, file_path: str) -> list[HTTPRoute]:
+    routes: list[HTTPRoute] = []
+
+    class_defs: dict[str, ast.ClassDef] = {}
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, ast.ClassDef):
+            class_defs[node.name] = node
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute) or func.attr != "add_resource":
+            continue
+        if len(node.args) < 2:
+            continue
+
+        cls_node = node.args[0]
+        cls_name = ast.unparse(cls_node) if isinstance(cls_node, ast.Name) else ""
+        if not cls_name:
+            continue
+
+        path_args: list[str] = []
+        for arg in node.args[1:]:
+            p = _string_from_node(arg)
+            if p:
+                path_args.append(p)
+
+        if not path_args:
+            continue
+
+        http_methods: list[str] = []
+        cls_def = class_defs.get(cls_name)
+        if cls_def:
+            for item in cls_def.body:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    method_upper = {
+                        "get": "GET", "post": "POST", "put": "PUT",
+                        "delete": "DELETE", "patch": "PATCH",
+                        "head": "HEAD", "options": "OPTIONS",
+                    }.get(item.name.lower())
+                    if method_upper:
+                        http_methods.append(method_upper)
+        if not http_methods:
+            http_methods = ["GET"]
+
+        for path in path_args:
+            for method in http_methods:
+                routes.append(HTTPRoute(
+                    method=method,
+                    path=path,
+                    handler=f"{file_path}::{cls_name}",
+                    file=file_path,
+                    line=node.lineno,
+                ))
+
+    return routes
+
+
 def extract_flask(source: str, file_path: str) -> dict[str, Any]:
     try:
         tree = ast.parse(source)
@@ -390,7 +449,7 @@ def extract_flask(source: str, file_path: str) -> dict[str, Any]:
         }
 
     return {
-        "routes": _extract_routes(tree, file_path) + _extract_add_url_rule_calls(tree, file_path),
+        "routes": _extract_routes(tree, file_path) + _extract_add_url_rule_calls(tree, file_path) + _extract_flask_restful_routes(tree, file_path),
         "blueprints": _detect_blueprint_assignments(tree),
         "blueprint_registrations": _extract_blueprint_registrations(tree, file_path),
         "template_refs": _extract_template_refs(tree, file_path),
