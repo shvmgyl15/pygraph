@@ -671,3 +671,39 @@ def handle():
         assert guards[1]["field"] == "commandName"
         assert guards[1]["const_ref"] is True
         assert "SomeClass.CONSTANT.value" in guards[1]["ref"]
+
+    def test_dispatch_guards_not_at_body_index_zero(self) -> None:
+        src = """
+def handle(data):
+    logger.info("processing")
+    result = []
+    if data.get("entityName") == "ORDER":
+        pass
+    elif data.get("commandName") == "CREATE":
+        pass
+"""
+        from pygraph.extractors.events import extract_dispatch_guards
+        import ast
+        tree = ast.parse(src)
+        func = tree.body[0]
+        guards = extract_dispatch_guards(func)
+        assert len(guards) == 2
+        assert guards[0]["field"] == "entityName"
+        assert guards[1]["field"] == "commandName"
+
+    def test_dispatch_guards_inside_try(self) -> None:
+        src = """
+def handle(data):
+    try:
+        if data.get("entityName") == "ORDER":
+            pass
+    except Exception:
+        pass
+"""
+        from pygraph.extractors.events import extract_dispatch_guards
+        import ast
+        tree = ast.parse(src)
+        func = tree.body[0]
+        guards = extract_dispatch_guards(func)
+        assert len(guards) == 1
+        assert guards[0]["field"] == "entityName"

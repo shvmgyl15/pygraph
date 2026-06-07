@@ -155,11 +155,22 @@ def extract_dispatch_guards(
 ) -> list[dict[str, Any]]:
     if not func_node.body:
         return []
-    first = func_node.body[0]
-    if not isinstance(first, ast.If):
+    first_if = None
+    for stmt in func_node.body:
+        if isinstance(stmt, ast.If):
+            first_if = stmt
+            break
+        if isinstance(stmt, ast.Try) and stmt.body:
+            for inner in stmt.body:
+                if isinstance(inner, ast.If):
+                    first_if = inner
+                    break
+        if first_if:
+            break
+    if not first_if:
         return []
-    guards = _extract_guards_from_if(first)
-    cur = first.orelse
+    guards = _extract_guards_from_if(first_if)
+    cur = first_if.orelse
     while cur:
         if len(cur) == 1 and isinstance(cur[0], ast.If):
             guards.extend(_extract_guards_from_if(cur[0]))
