@@ -119,65 +119,100 @@ def _extract_guard_value(node: ast.expr) -> dict[str, Any]:
     return {"value": None, "const_ref": True, "ref": ".".join(reversed(parts))}
 
 
-def _extract_guards_from_if(node: ast.If) -> list[dict[str, Any]]:
+def _extract_guard_from_if(node: ast.If) -> dict[str, Any] | None:
     if not isinstance(node.test, ast.Compare):
-        return []
+        return None
     compare = node.test
     if len(compare.ops) != 1 or len(compare.comparators) != 1:
-        return []
+        return None
     if not isinstance(compare.ops[0], ast.Eq):
-        return []
+        return None
 
-    # Extract field name from left side
     left = compare.left
     if isinstance(left, ast.Name):
         field = left.id
     elif isinstance(left, ast.Call):
-        # data.get("key") == value pattern
         if (isinstance(left.func, ast.Attribute) and left.func.attr == "get"
                 and len(left.args) == 1 and isinstance(left.args[0], ast.Constant)
                 and isinstance(left.args[0].value, str)):
             field = left.args[0].value
         else:
-            return []
+            return None
     else:
-        return []
+        return None
 
-    # Extract value from right side
     guard = _extract_guard_value(compare.comparators[0])
     guard["field"] = field
     guard["op"] = "eq"
-    return [guard]
+    return guard
+
+
+def _walk_guard_paths(
+    stmt: ast.stmt,
+    parent_guards: list[dict[str, Any]],
+    result: list[list[dict[str, Any]]],
+) -> None:
+    if not isinstance(stmt, ast.If):
+        return
+    guard = _extract_guard_from_if(stmt)
+    guards_here = [guard] if guard else []
+
+    # Check the if body — does it start with another if?
+    if stmt.body and isinstance(stmt.body[0], ast.If):
+        _walk_guard_paths(stmt.body[0], parent_guards + guards_here, result)
+    else:
+        result.append(parent_guards + guards_here)
+
+    # Walk elif chain
+    cur = stmt.orelse
+    while cur:
+        if len(cur) == 1 and isinstance(cur[0], ast.If):
+            elif_guard = _extract_guard_from_if(cur[0])
+            elif_guards = [elif_guard] if elif_guard else []
+            if cur[0].body and isinstance(cur[0].body[0], ast.If):
+                _walk_guard_paths(cur[0].body[0], parent_guards + elif_guards, result)
+            else:
+                result.append(parent_guards + elif_guards)
+            cur = cur[0].orelse
+        else:
+            # else branch with no elif — parent guards carry through
+            for child in cur:
+                _walk_guard_paths(child, parent_guards, result)
+            break
 
 
 def extract_dispatch_guards(
     func_node: ast.FunctionDef | ast.AsyncFunctionDef,
-) -> list[dict[str, Any]]:
+) -> list[list[dict[str, Any]]]:
+    paths: list[list[dict[str, Any]]] = []
     if not func_node.body:
-        return []
-    first_if = None
+        return paths
     for stmt in func_node.body:
         if isinstance(stmt, ast.If):
-            first_if = stmt
-            break
-        if isinstance(stmt, ast.Try) and stmt.body:
+            _walk_guard_paths(stmt, [], paths)
+        elif isinstance(stmt, ast.Try) and stmt.body:
             for inner in stmt.body:
                 if isinstance(inner, ast.If):
-                    first_if = inner
-                    break
-        if first_if:
-            break
-    if not first_if:
-        return []
-    guards = _extract_guards_from_if(first_if)
-    cur = first_if.orelse
-    while cur:
-        if len(cur) == 1 and isinstance(cur[0], ast.If):
-            guards.extend(_extract_guards_from_if(cur[0]))
-            cur = cur[0].orelse
-        else:
-            break
-    return guards
+                    _walk_guard_paths(inner, [], paths)
+    return paths
+
+
+def extract_dispatch_guards_for_class(
+    cls_node: ast.ClassDef,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for item in cls_node.body:
+        if not isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        paths = extract_dispatch_guards(item)
+        for path in paths:
+            if path:
+                results.append({
+                    "method": item.name,
+                    "line": item.lineno,
+                    "guards": path,
+                })
+    return results
 
 
 def _match_consumer_call_sites(
@@ -231,13 +266,14 @@ def extract_event_consumptions(
     # Call site pattern matching
     result.extend(_match_consumer_call_sites(func_node, event_config))
 
-    # Guards from first if block
-    guards = extract_dispatch_guards(func_node)
-    if guards and not any(e.get("guards") for e in result):
-        result.append({
-            "boundary": "dispatch_guards", "guards": guards,
-            "symbol": func_node.name, "line": func_node.lineno,
-        })
+    # Guards from if block paths — one entry per guard path
+    guard_paths = extract_dispatch_guards(func_node)
+    for path in guard_paths:
+        if path:
+            result.append({
+                "boundary": "dispatch_guards", "guards": path,
+                "symbol": func_node.name, "line": func_node.lineno,
+            })
 
     # Interface matching on class
     if cls_node:
@@ -249,10 +285,15 @@ def extract_event_consumptions(
             if not iface or iface not in cls_bases:
                 continue
             entry = _make_entry(boundary, cls_node.name, cls_node.lineno)
-            g = extract_dispatch_guards(func_node)
-            if g:
-                entry["guards"] = g
-            result.append(entry)
+            cls_paths = extract_dispatch_guards_for_class(cls_node)
+            if cls_paths:
+                for cp in cls_paths:
+                    cp_entry = dict(entry)
+                    cp_entry["guards"] = cp.get("guards", [])
+                    cp_entry["method"] = cp.get("method", "")
+                    result.append(cp_entry)
+            else:
+                result.append(entry)
 
     return result
 
@@ -294,16 +335,27 @@ def enrich_symbols(
                 iface = boundary.get("match", {}).get("interface")
                 if not iface or iface not in [ast.unparse(b) for b in cls_node.bases]:
                     continue
-                already = any(
-                    e.get("boundary") == boundary["name"]
-                    for e in sym.event_consumptions
-                )
-                if not already:
-                    sym.event_consumptions.append({
-                        "boundary": boundary["name"],
-                        "symbol": sym.name,
-                        "line": cls_node.lineno,
-                    })
+                cls_paths = extract_dispatch_guards_for_class(cls_node)
+                if cls_paths:
+                    for cp in cls_paths:
+                        sym.event_consumptions.append({
+                            "boundary": boundary["name"],
+                            "symbol": sym.name,
+                            "method": cp.get("method", ""),
+                            "line": cp.get("line", 0),
+                            "guards": cp.get("guards", []),
+                        })
+                else:
+                    already = any(
+                        e.get("boundary") == boundary["name"]
+                        for e in sym.event_consumptions
+                    )
+                    if not already:
+                        sym.event_consumptions.append({
+                            "boundary": boundary["name"],
+                            "symbol": sym.name,
+                            "line": cls_node.lineno,
+                        })
         enriched.append(sym)
     return enriched
 

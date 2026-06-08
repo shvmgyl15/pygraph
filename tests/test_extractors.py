@@ -527,12 +527,12 @@ def handle_callback(entity, command):
         import ast
         tree = ast.parse(src)
         func = tree.body[0]
-        guards = extract_dispatch_guards(func)
-        assert len(guards) == 2
-        assert guards[0]["field"] == "entity"
-        assert guards[0]["value"] == "ORDER"
-        assert guards[1]["field"] == "command"
-        assert guards[1]["value"] == "CREATE"
+        paths = extract_dispatch_guards(func)
+        assert len(paths) == 2
+        assert paths[0][0]["field"] == "entity"
+        assert paths[0][0]["value"] == "ORDER"
+        assert paths[1][0]["field"] == "command"
+        assert paths[1][0]["value"] == "CREATE"
 
     def test_extract_consumer_via_decorator(self) -> None:
         src = """
@@ -567,6 +567,7 @@ class OrderHandler(CallbackHandler):
         assert len(result) >= 1
         entry = next(e for e in result if e["boundary"] == "callback_handler")
         assert "guards" in entry
+        assert len(entry["guards"]) == 1
         assert entry["guards"][0]["field"] == "entity"
         assert entry["guards"][0]["value"] == "ORDER"
 
@@ -644,12 +645,12 @@ def handle(data):
         import ast
         tree = ast.parse(src)
         func = tree.body[0]
-        guards = extract_dispatch_guards(func)
-        assert len(guards) == 2
-        assert guards[0]["field"] == "entityName"
-        assert guards[0]["value"] == "ORDER"
-        assert guards[1]["field"] == "commandName"
-        assert guards[1]["value"] == "CREATE"
+        paths = extract_dispatch_guards(func)
+        assert len(paths) == 2
+        assert paths[0][0]["field"] == "entityName"
+        assert paths[0][0]["value"] == "ORDER"
+        assert paths[1][0]["field"] == "commandName"
+        assert paths[1][0]["value"] == "CREATE"
 
     def test_dispatch_guards_complex_right_side(self) -> None:
         src = """
@@ -663,14 +664,14 @@ def handle():
         import ast
         tree = ast.parse(src)
         func = tree.body[0]
-        guards = extract_dispatch_guards(func)
-        assert len(guards) == 2
-        assert guards[0]["field"] == "entityName"
-        assert guards[0]["const_ref"] is True
-        assert "SomeModel().entity_type" in guards[0]["ref"]
-        assert guards[1]["field"] == "commandName"
-        assert guards[1]["const_ref"] is True
-        assert "SomeClass.CONSTANT.value" in guards[1]["ref"]
+        paths = extract_dispatch_guards(func)
+        assert len(paths) == 2
+        assert paths[0][0]["field"] == "entityName"
+        assert paths[0][0]["const_ref"] is True
+        assert "SomeModel().entity_type" in paths[0][0]["ref"]
+        assert paths[1][0]["field"] == "commandName"
+        assert paths[1][0]["const_ref"] is True
+        assert "SomeClass.CONSTANT.value" in paths[1][0]["ref"]
 
     def test_dispatch_guards_not_at_body_index_zero(self) -> None:
         src = """
@@ -686,10 +687,10 @@ def handle(data):
         import ast
         tree = ast.parse(src)
         func = tree.body[0]
-        guards = extract_dispatch_guards(func)
-        assert len(guards) == 2
-        assert guards[0]["field"] == "entityName"
-        assert guards[1]["field"] == "commandName"
+        paths = extract_dispatch_guards(func)
+        assert len(paths) == 2
+        assert paths[0][0]["field"] == "entityName"
+        assert paths[1][0]["field"] == "commandName"
 
     def test_dispatch_guards_inside_try(self) -> None:
         src = """
@@ -704,6 +705,59 @@ def handle(data):
         import ast
         tree = ast.parse(src)
         func = tree.body[0]
-        guards = extract_dispatch_guards(func)
-        assert len(guards) == 1
-        assert guards[0]["field"] == "entityName"
+        paths = extract_dispatch_guards(func)
+        assert len(paths) == 1
+        assert paths[0][0]["field"] == "entityName"
+
+    def test_dispatch_guards_recursive_nested(self) -> None:
+        src = """
+def handle(data):
+    if data.get("entityType") == "ORDER":
+        if data.get("commandName") == "CREATE":
+            pass
+        elif data.get("commandName") == "UPDATE":
+            pass
+    elif data.get("entityType") == "USER":
+        if data.get("commandName") == "CREATE":
+            pass
+"""
+        from pygraph.extractors.events import extract_dispatch_guards
+        import ast
+        tree = ast.parse(src)
+        func = tree.body[0]
+        paths = extract_dispatch_guards(func)
+        assert len(paths) == 3
+        assert paths[0][0]["field"] == "entityType"
+        assert paths[0][0]["value"] == "ORDER"
+        assert paths[0][1]["field"] == "commandName"
+        assert paths[0][1]["value"] == "CREATE"
+        assert paths[1][0]["field"] == "entityType"
+        assert paths[1][0]["value"] == "ORDER"
+        assert paths[1][1]["field"] == "commandName"
+        assert paths[1][1]["value"] == "UPDATE"
+        assert paths[2][0]["field"] == "entityType"
+        assert paths[2][0]["value"] == "USER"
+        assert paths[2][1]["field"] == "commandName"
+        assert paths[2][1]["value"] == "CREATE"
+
+    def test_dispatch_guards_for_class(self) -> None:
+        src = """
+class OrderHandler(CallbackHandler):
+    def handle(self, data):
+        if data.get("entityType") == "ORDER":
+            if data.get("commandName") == "CREATE":
+                pass
+    def validate(self, data):
+        if data.get("entityType") == "USER":
+            pass
+"""
+        from pygraph.extractors.events import extract_dispatch_guards_for_class
+        import ast
+        tree = ast.parse(src)
+        cls = tree.body[0]
+        results = extract_dispatch_guards_for_class(cls)
+        assert len(results) == 2
+        assert results[0]["method"] == "handle"
+        assert len(results[0]["guards"]) == 2
+        assert results[1]["method"] == "validate"
+        assert len(results[1]["guards"]) == 1
