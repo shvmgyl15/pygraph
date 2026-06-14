@@ -102,6 +102,18 @@ class HTTPRoute:
     handler: str = ""
     file: str = ""
     line: int = 0
+    response_model: str | None = None
+    tags: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ResponseModelRef:
+    route_path: str = ""
+    method: str = ""
+    model_name: str = ""
+    model_file: str = ""
+    symbol_id: str = ""
+    wrapper: str | None = None
 
 
 @dataclass
@@ -210,6 +222,7 @@ class Graph:
     template_refs: list[TemplateRef] = field(default_factory=list)
     extensions: list[ExtensionUsage] = field(default_factory=list)
     http_calls: list[HttpCallEdge] = field(default_factory=list)
+    response_model_refs: list[ResponseModelRef] = field(default_factory=list)
 
 
 def make_graph(*, project_root: str = "") -> Graph:

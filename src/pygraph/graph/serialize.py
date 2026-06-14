@@ -64,6 +64,7 @@ def graph_to_dict(graph: Graph) -> dict[str, Any]:
         "template_refs": [_filter_none(asdict(t)) for t in graph.template_refs],
         "extensions": [_filter_none(asdict(e)) for e in graph.extensions],
         "http_calls": [_filter_none(asdict(h)) for h in graph.http_calls],
+        "response_model_refs": [_filter_none(asdict(r)) for r in graph.response_model_refs],
     })
 
 
