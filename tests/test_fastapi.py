@@ -260,3 +260,29 @@ def patch(id: int): pass
         result = extract_fastapi(src, "main.py")
         methods = {r.method for r in result["routes"]}
         assert methods == {"GET", "POST", "PUT", "DELETE", "PATCH"}
+
+    def test_router_separate_file_no_include_router(self) -> None:
+        """Routes on a router in a separate file (no include_router) should still
+        be extracted. The prefix will be empty since include_router is not in this file.
+        This simulates the common pattern where main.py has app.include_router() and
+        routes/users.py defines @router.get()."""
+        src = """
+from fastapi import APIRouter
+
+router = APIRouter()
+
+@router.get("/users")
+def list_users():
+    pass
+
+@router.post("/users")
+def create_user():
+    pass
+"""
+        result = extract_fastapi(src, "routes/users.py")
+        assert len(result["routes"]) == 2, \
+            f"Expected 2 routes for separate-file router, got {len(result['routes'])}"
+        paths = {r.path for r in result["routes"]}
+        assert paths == {"/users"}, f"Expected paths {{'/users'}}, got {paths}"
+        methods = {r.method for r in result["routes"]}
+        assert methods == {"GET", "POST"}

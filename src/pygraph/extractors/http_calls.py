@@ -34,18 +34,36 @@ def _extract_static_segments_from_joinedstr(node: ast.JoinedStr) -> list[str]:
 
 def _get_http_client_vars(tree: ast.Module) -> set[str]:
     vars_set: set[str] = set()
+
+    def _is_client_constructor(call: ast.Call, module: str, classes: set[str]) -> bool:
+        return (
+            isinstance(call.func, ast.Attribute)
+            and isinstance(call.func.value, ast.Name)
+            and call.func.value.id == module
+            and call.func.attr in classes
+        )
+
     for node in ast.walk(tree):
+        # Pattern 1: Simple assignment: X = httpx.Client() / X = aiohttp.ClientSession()
         if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
             call = node.value
-            if (
-                isinstance(call.func, ast.Attribute)
-                and isinstance(call.func.value, ast.Name)
-                and call.func.value.id == "httpx"
-                and call.func.attr in ("Client", "AsyncClient")
-            ):
+            if _is_client_constructor(call, "httpx", {"Client", "AsyncClient"}) \
+                    or _is_client_constructor(call, "aiohttp", {"ClientSession"}):
                 for target in node.targets:
                     if isinstance(target, ast.Name):
                         vars_set.add(target.id)
+
+        # Pattern 2: Async context manager: async with httpx.AsyncClient() as X:
+        #                                    async with aiohttp.ClientSession() as X:
+        if isinstance(node, ast.AsyncWith):
+            for item in node.items:
+                if isinstance(item.context_expr, ast.Call):
+                    call = item.context_expr
+                    if _is_client_constructor(call, "httpx", {"AsyncClient"}) \
+                            or _is_client_constructor(call, "aiohttp", {"ClientSession"}):
+                        if isinstance(item.optional_vars, ast.Name):
+                            vars_set.add(item.optional_vars.id)
+
     return vars_set
 
 

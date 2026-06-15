@@ -229,7 +229,7 @@ def _detect_include_router(
             decorator_method = parts[1]
             if decorator_method not in HTTP_METHOD_DECORATORS:
                 continue
-            if app_or_router not in router_prefixes:
+            if app_or_router not in router_vars:
                 continue
 
             router_var = app_or_router
