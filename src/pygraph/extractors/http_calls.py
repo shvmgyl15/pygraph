@@ -90,10 +90,15 @@ def extract_http_calls(source: str, file_path: str) -> list[HttpCallEdge]:
             continue
 
         obj = func.value
-        if not (
+        # Known module-level name (requests, httpx) or tracked client variable
+        is_known_name = (
             isinstance(obj, ast.Name)
             and (obj.id in ("requests", "httpx") or obj.id in client_vars)
-        ):
+        )
+        # Attribute chain like self.client.get(url), self.http.post(url)
+        is_attr_chain = isinstance(obj, ast.Attribute)
+
+        if not (is_known_name or is_attr_chain):
             continue
 
         if not node.args:

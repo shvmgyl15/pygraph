@@ -321,6 +321,104 @@ def _create_response_model_refs(
     return refs
 
 
+def _extract_add_api_route_calls(
+    tree: ast.Module,
+    file_path: str,
+    app_vars: set[str],
+    router_vars: set[str],
+) -> list[HTTPRoute]:
+    """Extract routes from imperative router.add_api_route(path, handler, ...) calls.
+    Handles add_api_route() and add_websocket_route() across both app and router vars."""
+    routes: list[HTTPRoute] = []
+    all_vars = app_vars | router_vars
+
+    # Build prefix map from app.include_router(router, prefix=...) calls
+    router_prefixes: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute) or func.attr != "include_router":
+            continue
+        app_var = ast.unparse(func.value) if isinstance(func.value, ast.Name) else ""
+        if app_var not in app_vars or app_var in router_vars:
+            continue
+        if not node.args:
+            continue
+        router_var = ast.unparse(node.args[0]) if isinstance(node.args[0], ast.Name) else ""
+        if not router_var:
+            continue
+        prefix = ""
+        for kw in node.keywords:
+            if kw.arg == "prefix":
+                val = _string_from_node(kw.value)
+                if val is not None:
+                    prefix = val
+        router_prefixes[router_var] = prefix
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute):
+            continue
+        if func.attr not in ("add_api_route", "add_websocket_route"):
+            continue
+        if not isinstance(func.value, ast.Name) or func.value.id not in all_vars:
+            continue
+        if len(node.args) < 2:
+            continue
+
+        # First arg: path
+        path = ""
+        if isinstance(node.args[0], ast.Constant) and isinstance(node.args[0].value, str):
+            path = node.args[0].value
+
+        # Second arg: endpoint/handler
+        handler = ast.unparse(node.args[1]) if len(node.args) > 1 else ""
+
+        # Apply router prefix
+        var_name = func.value.id
+        if var_name in router_vars:
+            prefix = router_prefixes.get(var_name, "")
+            if prefix:
+                path = prefix.rstrip("/") + "/" + path.lstrip("/")
+
+        # Extract keywords
+        methods: list[str] = []
+        response_model: str | None = None
+        tags: list[str] = []
+
+        for kw in node.keywords:
+            if kw.arg == "methods" and isinstance(kw.value, (ast.List, ast.Tuple)):
+                for elt in kw.value.elts:
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                        methods.append(elt.value.upper())
+            elif kw.arg == "response_model":
+                response_model = ast.unparse(kw.value)
+            elif kw.arg == "tags":
+                tags = _string_list_from_node(kw.value)
+
+        final_methods: list[str]
+        if func.attr == "add_websocket_route":
+            final_methods = ["WS"]
+        else:
+            final_methods = methods or ["GET"]
+
+        for method in final_methods:
+            routes.append(HTTPRoute(
+                method=method,
+                path=path if path else ast.unparse(node.args[0]),
+                handler=handler,
+                file=file_path,
+                line=node.lineno,
+                response_model=response_model,
+                tags=tags,
+            ))
+
+    return routes
+
+
 def extract_fastapi(
     source: str,
     file_path: str,
@@ -337,6 +435,7 @@ def extract_fastapi(
 
     routes = _extract_routes(tree, file_path, app_vars, router_vars)
     routes.extend(_detect_include_router(tree, file_path, app_vars, router_vars))
+    routes.extend(_extract_add_api_route_calls(tree, file_path, app_vars, router_vars))
 
     refs: list[ResponseModelRef] = []
     if symbols is not None:

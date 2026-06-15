@@ -286,3 +286,118 @@ def create_user():
         assert paths == {"/users"}, f"Expected paths {{'/users'}}, got {paths}"
         methods = {r.method for r in result["routes"]}
         assert methods == {"GET", "POST"}
+
+    def test_add_api_route_basic(self) -> None:
+        """Imperative app.add_api_route() should be detected."""
+        src = """
+from fastapi import FastAPI
+
+app = FastAPI()
+
+def health_handler():
+    pass
+
+app.add_api_route("/health", health_handler)
+"""
+        result = extract_fastapi(src, "main.py")
+        assert len(result["routes"]) == 1, \
+            f"Expected 1 route from add_api_route, got {len(result['routes'])}"
+        r = result["routes"][0]
+        assert r.method == "GET", f"Expected GET, got {r.method}"
+        assert r.path == "/health"
+        assert r.handler == "health_handler"
+
+    def test_add_api_route_with_methods(self) -> None:
+        """app.add_api_route() with explicit methods keyword."""
+        src = """
+from fastapi import FastAPI
+
+app = FastAPI()
+
+def handler():
+    pass
+
+app.add_api_route("/users", handler, methods=["POST", "PUT"])
+"""
+        result = extract_fastapi(src, "main.py")
+        assert len(result["routes"]) == 2
+        methods = {r.method for r in result["routes"]}
+        assert methods == {"POST", "PUT"}
+        assert all(r.path == "/users" for r in result["routes"])
+
+    def test_add_api_route_with_response_model(self) -> None:
+        """app.add_api_route() with response_model keyword."""
+        src = """
+from fastapi import FastAPI
+from pydantic import BaseModel
+
+app = FastAPI()
+
+class ItemResponse(BaseModel):
+    id: int
+
+def get_item():
+    pass
+
+app.add_api_route("/items/{id}", get_item, response_model=ItemResponse)
+"""
+        result = extract_fastapi(src, "main.py")
+        assert len(result["routes"]) == 1
+        r = result["routes"][0]
+        assert r.path == "/items/{id}"
+        assert r.response_model == "ItemResponse"
+
+    def test_add_websocket_route(self) -> None:
+        """app.add_websocket_route() should produce WS method."""
+        src = """
+from fastapi import FastAPI
+
+app = FastAPI()
+
+def ws_handler():
+    pass
+
+app.add_websocket_route("/ws", ws_handler)
+"""
+        result = extract_fastapi(src, "main.py")
+        assert len(result["routes"]) == 1
+        r = result["routes"][0]
+        assert r.method == "WS"
+        assert r.path == "/ws"
+
+    def test_add_api_route_on_router_with_prefix(self) -> None:
+        """router.add_api_route() should apply include_router prefix."""
+        src = """
+from fastapi import APIRouter, FastAPI
+
+app = FastAPI()
+router = APIRouter()
+
+def list_items():
+    pass
+
+router.add_api_route("/items", list_items)
+app.include_router(router, prefix="/api/v1")
+"""
+        result = extract_fastapi(src, "main.py")
+        assert len(result["routes"]) == 1
+        r = result["routes"][0]
+        assert r.path == "/api/v1/items"
+
+    def test_add_api_route_on_router_no_prefix(self) -> None:
+        """router.add_api_route() without include_router prefix should keep path as-is."""
+        src = """
+from fastapi import APIRouter
+
+router = APIRouter()
+
+def handler():
+    pass
+
+router.add_api_route("/data", handler)
+"""
+        result = extract_fastapi(src, "routes/data.py")
+        assert len(result["routes"]) == 1
+        r = result["routes"][0]
+        assert r.path == "/data"
+        assert r.method == "GET"
