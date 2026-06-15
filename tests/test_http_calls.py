@@ -122,3 +122,128 @@ class Deep:
         assert len(calls) == 1
         assert calls[0].method == "GET"
         assert calls[0].function_name == "fetch"
+
+    # --- Any-name bare wrapper support (Phase 1 fix) ---
+
+    def test_bare_name_wrapper_standard_method(self) -> None:
+        """Any bare-name variable with standard HTTP method should be detected."""
+        src = """
+class MyAPI:
+    pass
+
+api = MyAPI()
+
+def fetch():
+    return api.get("https://api.example.com/users")
+"""
+        calls = extract_http_calls(src, "main.py")
+        assert len(calls) == 1, f"Expected 1 call, got {len(calls)}"
+        assert calls[0].method == "GET"
+        assert calls[0].url == "https://api.example.com/users"
+        assert calls[0].function_name == "fetch"
+
+    def test_bare_name_wrapper_post(self) -> None:
+        """Any bare-name variable with .post() should be detected."""
+        src = """
+client = get_client()
+
+def create():
+    return client.post("https://api.example.com/items", json={"name": "test"})
+"""
+        calls = extract_http_calls(src, "main.py")
+        assert len(calls) == 1
+        assert calls[0].method == "POST"
+        assert calls[0].url == "https://api.example.com/items"
+
+    # --- Generic HTTP method support (Phase 1 fix) ---
+
+    def test_generic_request_bare_name(self) -> None:
+        """Generic .request('GET', url) on a bare-name wrapper should be detected."""
+        src = """
+client = MyHTTPClient()
+
+def fetch():
+    return client.request("GET", "https://api.example.com/users")
+"""
+        calls = extract_http_calls(src, "main.py")
+        assert len(calls) == 1, f"Expected 1 call, got {len(calls)}"
+        assert calls[0].method == "GET"
+        assert calls[0].url == "https://api.example.com/users"
+        assert calls[0].function_name == "fetch"
+
+    def test_generic_call_attribute_chain(self) -> None:
+        """Generic .call('POST', url) on an attribute chain should be detected."""
+        src = """
+class Service:
+    def __init__(self):
+        self.client = HTTPClient()
+
+    def create(self):
+        return self.client.call("POST", "https://api.example.com/items")
+"""
+        calls = extract_http_calls(src, "main.py")
+        assert len(calls) == 1
+        assert calls[0].method == "POST"
+        assert calls[0].url == "https://api.example.com/items"
+        assert calls[0].function_name == "create"
+
+    def test_generic_request_with_dynamic_url(self) -> None:
+        """Generic .request() with an f-string URL should be detected."""
+        src = """
+api = MyAPI()
+
+def get_item(item_id):
+    return api.request("GET", f"https://api.example.com/items/{item_id}")
+"""
+        calls = extract_http_calls(src, "main.py")
+        assert len(calls) == 1
+        assert calls[0].method == "GET"
+        assert calls[0].has_dynamic is True
+        assert calls[0].function_name == "get_item"
+
+    def test_generic_invalid_method_skipped(self) -> None:
+        """Generic .request() with a non-HTTP method string should be skipped."""
+        src = """
+client = MyClient()
+
+def fetch():
+    return client.request("INVALID", "https://api.example.com/data")
+"""
+        calls = extract_http_calls(src, "main.py")
+        assert len(calls) == 0, f"Expected 0 calls, got {len(calls)}"
+
+    def test_generic_not_enough_args_skipped(self) -> None:
+        """Generic .request() with only one arg should be skipped."""
+        src = """
+client = MyClient()
+
+def fetch():
+    return client.request("https://api.example.com/data")
+"""
+        calls = extract_http_calls(src, "main.py")
+        assert len(calls) == 0, f"Expected 0 calls, got {len(calls)}"
+
+    def test_generic_non_string_first_arg_skipped(self) -> None:
+        """Generic .request() with non-string first arg should be skipped."""
+        src = """
+METHOD = "GET"
+client = MyClient()
+
+def fetch():
+    return client.request(METHOD, "https://api.example.com/data")
+"""
+        calls = extract_http_calls(src, "main.py")
+        assert len(calls) == 0, f"Expected 0 calls, got {len(calls)}"
+
+    def test_requests_request_generic(self) -> None:
+        """requests.request('GET', url) should be detected (generic pattern on known module)."""
+        src = """
+import requests
+
+def fetch():
+    return requests.request("GET", "https://api.example.com/users")
+"""
+        calls = extract_http_calls(src, "main.py")
+        assert len(calls) == 1
+        assert calls[0].method == "GET"
+        assert calls[0].url == "https://api.example.com/users"

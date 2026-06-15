@@ -5,7 +5,12 @@ from urllib.parse import urlparse
 
 from pygraph.graph.types import HttpCallEdge
 
-HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
+HTTP_METHODS = frozenset({"get", "post", "put", "patch", "delete"})
+# Generic method names that accept the HTTP method as their first string argument.
+# Users can extend this set via pyproject.toml [tool.pygraph.http_client.generic_methods].
+GENERIC_HTTP_METHODS = frozenset({
+    "request", "call", "invoke", "fetch", "send", "execute",
+})
 
 
 def _enclosing_function_name(tree: ast.Module, line_no: int) -> str | None:
@@ -67,13 +72,34 @@ def _get_http_client_vars(tree: ast.Module) -> set[str]:
     return vars_set
 
 
+def _is_http_object(obj: ast.expr) -> bool:
+    """Check if a call's receiver object could be an HTTP client.
+    Accepts bare names (any variable) and attribute chains (self.client, self.http).
+    Named constants and subscripts are excluded."""
+    return isinstance(obj, (ast.Name, ast.Attribute))
+
+
+def _extract_url(
+    url_arg: ast.expr,
+) -> tuple[str, bool, list[str]] | None:
+    """Extract URL details from an AST expression node.
+    Returns (url, has_dynamic, static_segments) or None if unresolvable."""
+    if isinstance(url_arg, ast.Constant) and isinstance(url_arg.value, str):
+        url = url_arg.value
+        return url, False, _extract_static_segments(url)
+    if isinstance(url_arg, ast.JoinedStr):
+        url = ast.unparse(url_arg)
+        return url, True, _extract_static_segments_from_joinedstr(url_arg)
+    return None
+
+
 def extract_http_calls(source: str, file_path: str) -> list[HttpCallEdge]:
     try:
         tree = ast.parse(source)
     except SyntaxError:
         return []
 
-    client_vars = _get_http_client_vars(tree)
+    _client_vars = _get_http_client_vars(tree)  # kept for future config use
 
     calls: list[HttpCallEdge] = []
 
@@ -85,49 +111,53 @@ def extract_http_calls(source: str, file_path: str) -> list[HttpCallEdge]:
         if not isinstance(func, ast.Attribute):
             continue
 
-        method = func.attr.lower()
-        if method not in HTTP_METHODS:
-            continue
-
+        # Step 1: Is the receiver a plausible HTTP client object?
         obj = func.value
-        # Known module-level name (requests, httpx) or tracked client variable
-        is_known_name = (
-            isinstance(obj, ast.Name)
-            and (obj.id in ("requests", "httpx") or obj.id in client_vars)
-        )
-        # Attribute chain like self.client.get(url), self.http.post(url)
-        is_attr_chain = isinstance(obj, ast.Attribute)
-
-        if not (is_known_name or is_attr_chain):
+        if not _is_http_object(obj):
             continue
 
-        if not node.args:
-            continue
+        # Step 2: Determine the call pattern
+        method_name = func.attr.lower()
 
-        url_arg = node.args[0]
-        fn_name = _enclosing_function_name(tree, node.lineno) or ""
+        if method_name in HTTP_METHODS:
+            # Standard pattern: client.get(url), self.client.post(url)
+            if not node.args:
+                continue
+            url_result = _extract_url(node.args[0])
+            if url_result is None:
+                continue
+            url, has_dynamic, static_segments = url_result
+            http_method = method_name.upper()
 
-        has_dynamic: bool = False
-        url: str = ""
-        static_segments: list[str] = []
+        elif method_name in GENERIC_HTTP_METHODS:
+            # Generic pattern: client.request("GET", url), self.client.call("POST", url)
+            if len(node.args) < 2:
+                continue
+            # First argument must be a string literal (the HTTP method)
+            method_arg = node.args[0]
+            if not isinstance(method_arg, ast.Constant) or not isinstance(method_arg.value, str):
+                continue
+            http_method_raw = method_arg.value.upper()
+            if http_method_raw not in {m.upper() for m in HTTP_METHODS}:
+                continue
+            # Second argument is the URL
+            url_result = _extract_url(node.args[1])
+            if url_result is None:
+                continue
+            url, has_dynamic, static_segments = url_result
+            http_method = http_method_raw
 
-        if isinstance(url_arg, ast.Constant) and isinstance(url_arg.value, str):
-            url = url_arg.value
-            has_dynamic = False
-            static_segments = _extract_static_segments(url)
-        elif isinstance(url_arg, ast.JoinedStr):
-            url = ast.unparse(url_arg)
-            has_dynamic = True
-            static_segments = _extract_static_segments_from_joinedstr(url_arg)
         else:
             continue
+
+        fn_name = _enclosing_function_name(tree, node.lineno) or ""
 
         calls.append(
             HttpCallEdge(
                 source_file=file_path,
                 source_line=node.lineno,
                 function_name=fn_name,
-                method=method.upper(),
+                method=http_method,
                 url=url,
                 static_segments=static_segments,
                 has_dynamic=has_dynamic,
